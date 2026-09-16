@@ -3,30 +3,97 @@ package com.yui.assistant
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class YuiAccessibilityService : AccessibilityService() {
 
     companion object {
+        private const val TAG = "YuiAccessibility"
         var instance: YuiAccessibilityService? = null
             private set
+
+        private var isWhatsAppCallRinging = false
+        private var whatsappRingingStartTime = 0L
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Log.d(TAG, "🌸 YuiAccessibilityService conectado y listo.")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Monitoreo de eventos de UI cuando se solicite navegación guiada
+        if (event == null) return
+
+        val pkg = event.packageName?.toString() ?: ""
+
+        // Detección de Llamadas de WhatsApp (VoIP)
+        if (pkg == "com.whatsapp") {
+            handleWhatsAppCallEvent(event)
+        }
     }
 
-    override fun onInterrupt() {}
+    private fun handleWhatsAppCallEvent(event: AccessibilityEvent) {
+        val textList = event.text.map { it.toString() }
+        val isCallRelated = textList.any { 
+            it.contains("llamada", ignoreCase = true) || 
+            it.contains("ringing", ignoreCase = true) || 
+            it.contains("llamando", ignoreCase = true) 
+        }
+
+        if (isCallRelated && !isWhatsAppCallRinging) {
+            isWhatsAppCallRinging = true
+            whatsappRingingStartTime = System.currentTimeMillis()
+            Log.d(TAG, "Llamada de WhatsApp detectada. Iniciando temporizador de 35s...")
+
+            CoroutineScope(Dispatchers.Main).launch {
+                delay(35000L)
+                if (isWhatsAppCallRinging) {
+                    Log.d(TAG, "35s transcurridos en llamada WhatsApp. Yui contestando automáticamente...")
+                    answerWhatsAppCall()
+                    isWhatsAppCallRinging = false
+                }
+            }
+        }
+    }
+
+    fun answerWhatsAppCall(): Boolean {
+        // Buscar botones de contestar típicos en WhatsApp en español e inglés
+        val answerKeywords = listOf("Contestar", "Responder", "Aceptar", "Answer", "Accept")
+        for (kw in answerKeywords) {
+            if (clickElementByText(kw)) {
+                Log.d(TAG, "Llamada de WhatsApp contestada con botón: $kw")
+                return true
+            }
+        }
+        return false
+    }
+
+    fun declineWhatsAppCall(): Boolean {
+        val declineKeywords = listOf("Rechazar", "Colgar", "Declinar", "Decline", "Reject")
+        for (kw in declineKeywords) {
+            if (clickElementByText(kw)) {
+                Log.d(TAG, "Llamada de WhatsApp rechazada con botón: $kw")
+                return true
+            }
+        }
+        return false
+    }
+
+    override fun onInterrupt() {
+        isWhatsAppCallRinging = false
+    }
 
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        isWhatsAppCallRinging = false
     }
 
     /**
@@ -46,17 +113,18 @@ class YuiAccessibilityService : AccessibilityService() {
     fun clickElementByText(targetText: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val nodes = root.findAccessibilityNodeInfosByText(targetText)
-        for (node in nodes) {
-            if (node.isClickable) {
-                return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            }
-            // Probar hacer clic en el padre si el nodo hijo no es clickable directamente
-            var parent = node.parent
-            while (parent != null) {
-                if (parent.isClickable) {
-                    return parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (nodes != null) {
+            for (node in nodes) {
+                if (node.isClickable) {
+                    return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 }
-                parent = parent.parent
+                var parent = node.parent
+                while (parent != null) {
+                    if (parent.isClickable) {
+                        return parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    }
+                    parent = parent.parent
+                }
             }
         }
         return false
