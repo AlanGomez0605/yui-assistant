@@ -67,6 +67,10 @@ class GeminiYuiService:
         client_timezone: Optional[str] = None
     ) -> str:
         """Combina la personalidad base con la hora local precisa del usuario y la memoria permanente."""
+        self.system_prompt_base = get_yui_system_prompt(
+            owner_name=settings.OWNER_NAME,
+            owner_nickname=settings.OWNER_NICKNAME
+        )
         memory_context = await memory_service.build_dynamic_context()
         time_info = ""
         if client_time:
