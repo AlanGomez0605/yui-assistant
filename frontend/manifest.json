@@ -1,0 +1,22 @@
+{
+  "name": "Yui - MHCP-0001",
+  "short_name": "Yui SAO",
+  "description": "Asistente de Inteligencia Artificial Personal (Sword Art Online HUD)",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060a11",
+  "theme_color": "#ff79c6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

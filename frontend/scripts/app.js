@@ -11,6 +11,7 @@ class YuiApp {
 
         this.initDOMElements();
         this.initSpeechRecognition();
+        this.initServiceWorker();
         this.bindEvents();
         this.loadSystemStatus();
         this.sendInitialGreeting();
@@ -28,8 +29,32 @@ class YuiApp {
         // Modales
         this.remindersModal = document.getElementById('remindersModal');
         this.memoriesModal = document.getElementById('memoriesModal');
+        this.contactsModal = document.getElementById('contactsModal');
+        this.telephonyModal = document.getElementById('telephonyModal');
+
         this.modalBodyReminders = document.getElementById('modalBodyReminders');
         this.modalBodyMemories = document.getElementById('modalBodyMemories');
+        this.modalBodyContacts = document.getElementById('modalBodyContacts');
+        this.modalBodyTelephony = document.getElementById('modalBodyTelephony');
+
+        // Inputs y botones de modales
+        this.inputNewContactName = document.getElementById('inputNewContactName');
+        this.inputNewContactPhone = document.getElementById('inputNewContactPhone');
+        this.btnAddContact = document.getElementById('btnAddContact');
+        this.simPhoneNumber = document.getElementById('simPhoneNumber');
+        this.btnSimulateCall = document.getElementById('btnSimulateCall');
+        this.simulationResult = document.getElementById('simulationResult');
+    }
+
+    initServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(
+                    (reg) => console.log('PWA ServiceWorker registrado con éxito:', reg.scope),
+                    (err) => console.warn('Fallo al registrar ServiceWorker:', err)
+                );
+            });
+        }
     }
 
     bindEvents() {
@@ -45,6 +70,16 @@ class YuiApp {
 
         document.getElementById('btnOpenReminders').addEventListener('click', () => this.openRemindersModal());
         document.getElementById('btnOpenMemories').addEventListener('click', () => this.openMemoriesModal());
+        document.getElementById('btnOpenContacts').addEventListener('click', () => this.openContactsModal());
+        document.getElementById('btnOpenTelephony').addEventListener('click', () => this.openTelephonyModal());
+
+        if (this.btnAddContact) {
+            this.btnAddContact.addEventListener('click', () => this.handleAddContact());
+        }
+
+        if (this.btnSimulateCall) {
+            this.btnSimulateCall.addEventListener('click', () => this.handleSimulateCall());
+        }
         
         document.querySelectorAll('.sao-modal-close').forEach(btn => {
             btn.addEventListener('click', () => this.closeModals());
@@ -231,7 +266,7 @@ class YuiApp {
     }
 
     // ==========================================================================
-    // MODALES (RECORDATORIOS Y MEMORIAS)
+    // MODALES Y SERVICIOS (RECORDATORIOS, MEMORIAS, CONTACTOS, TELEFONÍA)
     // ==========================================================================
 
     async openRemindersModal() {
@@ -287,10 +322,140 @@ class YuiApp {
         }
     }
 
+    async openContactsModal() {
+        window.saoAudio?.playMenuOpen();
+        this.contactsModal.classList.add('active');
+        this.modalBodyContacts.innerHTML = '<p class="sao-card-text">Cargando libreta de contactos...</p>';
+
+        try {
+            const res = await fetch('/api/contacts');
+            const contacts = await res.json();
+            if (!contacts || contacts.length === 0) {
+                this.modalBodyContacts.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No hay contactos guardados todavía. Agrega uno arriba o sincroniza desde la App de Android.</p>';
+                return;
+            }
+
+            this.modalBodyContacts.innerHTML = contacts.map(c => `
+                <div class="sao-card-item" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div class="sao-card-text">👤 <strong>${c.name}</strong> ${c.is_vip ? '⭐ VIP' : ''}</div>
+                        <div class="sao-card-sub">📱 ${c.phone} • ${c.relationship || 'contacto'}</div>
+                    </div>
+                    <span style="font-size: 0.8rem; color: var(--accent-green); background: rgba(80, 250, 123, 0.1); padding: 0.2rem 0.5rem; border-radius: 4px;">Permitido</span>
+                </div>
+            `).join('');
+
+        } catch (e) {
+            this.modalBodyContacts.innerHTML = '<p class="sao-card-text" style="color: red;">Error cargando contactos.</p>';
+        }
+    }
+
+    async handleAddContact() {
+        const name = this.inputNewContactName.value.trim();
+        const phone = this.inputNewContactPhone.value.trim();
+        if (!name || !phone) return;
+
+        window.saoAudio?.playClick();
+        try {
+            await fetch('/api/contacts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, phone, relationship: "familiar" })
+            });
+            this.inputNewContactName.value = '';
+            this.inputNewContactPhone.value = '';
+            this.openContactsModal();
+        } catch (e) {
+            alert('Error agregando contacto');
+        }
+    }
+
+    async openTelephonyModal() {
+        window.saoAudio?.playMenuOpen();
+        this.telephonyModal.classList.add('active');
+        this.modalBodyTelephony.innerHTML = '<p class="sao-card-text">Cargando historial telefónico...</p>';
+
+        try {
+            const res = await fetch('/api/telephony/history');
+            const logs = await res.json();
+            if (!logs || logs.length === 0) {
+                this.modalBodyTelephony.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No hay llamadas registradas en el historial.</p>';
+                return;
+            }
+
+            this.modalBodyTelephony.innerHTML = logs.map(l => {
+                const wasAnswered = l.action === 'answer' || l.action === 'answered_with_courtesy_message' || l.status === 'handled_by_yui';
+                const nameDisplay = l.caller_name || l.contact_name || l.phone_number;
+                return `
+                <div class="sao-card-item">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                        <span class="sao-card-text"><strong>${nameDisplay}</strong> (${l.phone_number})</span>
+                        <span style="font-size: 0.8rem; color: ${wasAnswered ? 'var(--accent-green)' : 'var(--accent-pink)'}; font-weight: 600;">
+                            ${wasAnswered ? '✅ Contestada por Yui' : '🚫 Bloqueada / Desconocido'}
+                        </span>
+                    </div>
+                    <div class="sao-card-sub">
+                        🕒 ${l.timestamp} • Timbrado: ${l.ringing_seconds}s
+                    </div>
+                </div>
+            `}).join('');
+
+        } catch (e) {
+            this.modalBodyTelephony.innerHTML = '<p class="sao-card-text" style="color: red;">Error cargando historial.</p>';
+        }
+    }
+
+    async handleSimulateCall() {
+        const phone = this.simPhoneNumber.value.trim();
+        if (!phone) return;
+
+        window.saoAudio?.playClick();
+        this.simulationResult.innerHTML = '<span style="color: var(--accent-cyan);">⏳ Simulando 35 segundos de timbrado sin respuesta... Yui evaluando llamada...</span>';
+
+        try {
+            const res = await fetch('/api/telephony/incoming', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone_number: phone, ringing_seconds: 35 })
+            });
+            const data = await res.json();
+
+            const actionIsAnswer = data.action === 'answer' || data.action === 'answered_with_courtesy_message';
+            const callerName = data.contact_name || data.caller_name || 'Contacto';
+            const spokenMsg = data.spoken_message || data.message_spoken || '';
+
+            if (actionIsAnswer) {
+                this.simulationResult.innerHTML = `
+                    <div style="padding: 0.5rem; background: rgba(80, 250, 123, 0.1); border-left: 3px solid var(--accent-green); border-radius: 4px;">
+                        <span style="color: var(--accent-green); font-weight: bold;">📞 CONTACTO RECONOCIDO (${callerName}):</span>
+                        <div style="margin-top: 0.25rem; font-style: italic;">"${spokenMsg}"</div>
+                    </div>
+                `;
+                // Reproducir voz de Yui contestando la llamada
+                if (spokenMsg) this.speakReply(spokenMsg);
+            } else {
+                this.simulationResult.innerHTML = `
+                    <div style="padding: 0.5rem; background: rgba(255, 121, 198, 0.1); border-left: 3px solid var(--accent-pink); border-radius: 4px;">
+                        <span style="color: var(--accent-pink); font-weight: bold;">🚫 NÚMERO DESCONOCIDO:</span>
+                        <div style="margin-top: 0.25rem;">Número no registrado • <strong>Yui colgó la llamada automáticamente tras 35s.</strong></div>
+                    </div>
+                `;
+            }
+
+            // Recargar lista de historial
+            setTimeout(() => this.openTelephonyModal(), 1200);
+
+        } catch (e) {
+            this.simulationResult.innerHTML = '<span style="color: red;">Error simulando llamada.</span>';
+        }
+    }
+
     closeModals() {
         window.saoAudio?.playClick();
         this.remindersModal.classList.remove('active');
         this.memoriesModal.classList.remove('active');
+        this.contactsModal.classList.remove('active');
+        this.telephonyModal.classList.remove('active');
     }
 }
 

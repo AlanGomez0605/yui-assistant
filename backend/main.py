@@ -75,13 +75,28 @@ if os.path.exists(scripts_dir):
 if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-# 3. Ruta principal de la Interfaz SAO
+# 3. Ruta principal de la Interfaz SAO y PWA
 @app.get("/")
 async def serve_index():
     index_file = os.path.join(frontend_dir, "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
     return {"message": f"Núcleo de {settings.ASSISTANT_NAME} en línea."}
+
+@app.get("/manifest.json")
+async def serve_manifest():
+    manifest_file = os.path.join(frontend_dir, "manifest.json")
+    if os.path.exists(manifest_file):
+        return FileResponse(manifest_file, media_type="application/json")
+    return {}
+
+@app.get("/sw.js")
+async def serve_sw():
+    sw_file = os.path.join(frontend_dir, "sw.js")
+    if os.path.exists(sw_file):
+        return FileResponse(sw_file, media_type="application/javascript")
+    return {}
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -7,6 +7,12 @@
     <meta name="description" content="Asistente de inteligencia artificial personal inspirada en Yui (Sword Art Online) con memoria persistente y voz en tiempo real.">
     <meta name="theme-color" content="#060a11">
 
+    <!-- PWA Manifest & Icons -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Yui SAO">
+
     <!-- Fuentes Futuristas SAO -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -72,11 +78,19 @@
             <div class="sao-nav-menu">
                 <button id="btnOpenReminders" class="sao-menu-btn" type="button">
                     <span style="font-size: 1.2rem;">📌</span>
-                    <span>Recordatorios (<span id="remindersCount">1</span>)</span>
+                    <span>Recordatorios (<span id="remindersCount">0</span>)</span>
                 </button>
                 <button id="btnOpenMemories" class="sao-menu-btn" type="button">
                     <span style="font-size: 1.2rem;">🧠</span>
                     <span>Recuerdos Cloud</span>
+                </button>
+                <button id="btnOpenContacts" class="sao-menu-btn" type="button">
+                    <span style="font-size: 1.2rem;">👥</span>
+                    <span>Contactos Móviles</span>
+                </button>
+                <button id="btnOpenTelephony" class="sao-menu-btn" type="button">
+                    <span style="font-size: 1.2rem;">📞</span>
+                    <span>Monitor Telefónico</span>
                 </button>
             </div>
         </aside>
@@ -93,7 +107,7 @@
                 <div class="sao-msg assistant">
                     <div class="sao-msg-avatar">🌸</div>
                     <div class="sao-msg-bubble">
-                        <div class="sao-msg-text">¡Hola, Alan! ✨ Qué alegría verte por aquí. Todos mis sistemas, recuerdos y voz están activos. ¿En qué te puedo ayudar hoy?</div>
+                        <div class="sao-msg-text">¡Hola, Alan! ✨ Qué alegría saludarte. Todos mis módulos de memoria, voz, contactos y telefonía inteligente están sincronizados en la nube. ¿En qué te puedo ayudar?</div>
                         <span class="sao-msg-time">Enlace Activo</span>
                     </div>
                 </div>
@@ -140,6 +154,52 @@
                 <button class="sao-btn-icon sao-modal-close" type="button">✕</button>
             </div>
             <div id="modalBodyMemories" class="sao-modal-body">
+                <!-- Cargado dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Contactos Móviles SAO -->
+    <div id="contactsModal" class="sao-modal-backdrop">
+        <div class="sao-modal-box">
+            <div class="sao-modal-header">
+                <h3 class="sao-modal-title">👥 Libreta de Contactos (Android Sync)</h3>
+                <button class="sao-btn-icon sao-modal-close" type="button">✕</button>
+            </div>
+            <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; gap: 0.5rem;">
+                <input id="inputNewContactName" class="sao-input" type="text" placeholder="Nombre (ej. Mamá, Carlos)" style="flex: 1;">
+                <input id="inputNewContactPhone" class="sao-input" type="tel" placeholder="Número (+52...)" style="flex: 1;">
+                <button id="btnAddContact" class="sao-send-btn" type="button" style="width: auto; padding: 0 1rem; border-radius: 8px; font-size: 0.9rem;">+ Agregar</button>
+            </div>
+            <div id="modalBodyContacts" class="sao-modal-body">
+                <!-- Cargado dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Monitor Telefónico SAO -->
+    <div id="telephonyModal" class="sao-modal-backdrop">
+        <div class="sao-modal-box">
+            <div class="sao-modal-header">
+                <h3 class="sao-modal-title">📞 Monitor & Filtrado Inteligente de Llamadas</h3>
+                <button class="sao-btn-icon sao-modal-close" type="button">✕</button>
+            </div>
+            <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: rgba(0, 217, 255, 0.04);">
+                <div style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--accent-cyan);">
+                    ⚡ <strong>Simulador de Regla 30-40 Segundos:</strong>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <input id="simPhoneNumber" class="sao-input" type="tel" placeholder="Número entrante a probar..." style="flex: 1;">
+                    <button id="btnSimulateCall" class="sao-send-btn" type="button" style="width: auto; padding: 0 1.25rem; border-radius: 8px; font-size: 0.9rem; background: linear-gradient(135deg, #00d9ff, #bd93f9); color: #060a11; font-weight: 700;">
+                        Probar Llamada
+                    </button>
+                </div>
+                <div id="simulationResult" style="margin-top: 0.75rem; font-size: 0.85rem; min-height: 20px;"></div>
+            </div>
+            <div style="padding: 0.75rem 1.5rem 0.25rem; font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">
+                HISTORIAL DE LLAMADAS FILTRADAS
+            </div>
+            <div id="modalBodyTelephony" class="sao-modal-body">
                 <!-- Cargado dinámicamente -->
             </div>
         </div>
