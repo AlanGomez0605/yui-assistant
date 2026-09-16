@@ -12,6 +12,10 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.stdin.reconfigure(encoding='utf-8')
 settings = get_settings()
 
+async def get_user_input_async(prompt: str) -> str:
+    """Lee la entrada del usuario en un hilo secundario para NO congelar el bucle de eventos ni el audio."""
+    return await asyncio.to_thread(input, prompt)
+
 async def main():
     print("\n" + "═" * 65)
     print(f"  🌸  PROYECTO YUI - TERMINAL CON VOZ DIRECTA (MHCP-0001)")
@@ -42,7 +46,8 @@ async def main():
 
     full_welcome = "".join(initial_greeting)
     print("\n\n" + "─" * 65)
-    # Reproducir voz del saludo inicial
+
+    # Iniciar voz del saludo inicial sin congelar el loop
     asyncio.create_task(voice_service.speak(full_welcome, wait=False))
 
     history.append({"role": "user", "content": "¡Hola Yui! He abierto el canal directo de comunicación contigo."})
@@ -50,11 +55,15 @@ async def main():
 
     while True:
         try:
-            user_input = input(f"\n💬 {settings.OWNER_NICKNAME}: ").strip()
+            # Entrada asíncrona: el audio y las tareas continúan corriendo libremente
+            user_input = (await get_user_input_async(f"\n💬 {settings.OWNER_NICKNAME}: ")).strip()
             if not user_input:
                 continue
 
             if user_input.lower() in ["salir", "exit", "quit", "adios", "adiós"]:
+                # Detener audios anteriores
+                voice_service.stop()
+
                 print("\n🌸 Yui:\n", end="", flush=True)
                 farewell_chunks = []
                 async for chunk in gemini_service.generate_reply_stream(
@@ -86,13 +95,14 @@ async def main():
             full_reply = "".join(reply_chunks)
             print("\n\n" + "─" * 65)
 
-            # Reproducir voz sintetizada de Yui al mismo tiempo
+            # Reproducir la voz de forma asíncrona sin bloquear
             asyncio.create_task(voice_service.speak(full_reply, wait=False))
 
             history.append({"role": "user", "content": user_input})
             history.append({"role": "assistant", "content": full_reply})
 
         except (KeyboardInterrupt, EOFError):
+            voice_service.stop()
             print("\n\n🌸 Guardando recuerdos antes de salir...", end="", flush=True)
             await gemini_service.wait_for_pending_tasks(timeout=2.0)
             print(" ¡Listo!")

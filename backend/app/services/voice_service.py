@@ -18,15 +18,25 @@ class VoiceService:
         self.ps_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "play_audio.ps1"))
         os.makedirs(self.temp_dir, exist_ok=True)
         self._counter = 0
+        self._current_process = None
 
     def clean_text_for_speech(self, text: str) -> str:
-        """Limpia asteriscos de rolplay (*sonríe*), emojis y símbolos para una locución fluida y natural."""
+        """Limpia rolplay (*sonríe*), emojis y símbolos para una locución fluida y natural."""
         cleaned = re.sub(r'\*[^*]+\*', '', text)
         cleaned = re.sub(r'\([^\)]*\)', '', cleaned)
         cleaned = re.sub(r'[\U00010000-\U0010ffff]', '', cleaned)
         cleaned = cleaned.replace("**", "").replace("*", "").replace("#", "").replace("`", "").replace(">", "")
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
         return cleaned
+
+    def stop(self):
+        """Detiene cualquier audio que se esté reproduciendo actualmente para evitar solapamientos."""
+        if self._current_process is not None:
+            try:
+                self._current_process.terminate()
+            except Exception:
+                pass
+            self._current_process = None
 
     async def synthesize_to_bytes(self, text: str) -> bytes:
         """Sintetiza texto a audio MP3 en memoria con reintentos automáticos."""
@@ -48,12 +58,12 @@ class VoiceService:
                         audio_chunks.append(chunk["data"])
                 return b"".join(audio_chunks)
             except Exception:
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.2)
                 continue
         return b""
 
     async def synthesize_to_file(self, text: str, output_path: str) -> bool:
-        """Sintetiza texto y lo guarda en un archivo MP3 con reintento automático ante fallas de red."""
+        """Sintetiza texto y lo guarda en un archivo MP3 con reintento automático."""
         clean_text = self.clean_text_for_speech(text)
         if not clean_text:
             return False
@@ -69,15 +79,18 @@ class VoiceService:
                 await communicate.save(output_path)
                 return True
             except Exception:
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.2)
                 continue
         return False
 
     def play_audio_file(self, file_path: str, wait: bool = False) -> None:
-        """Reproduce un archivo MP3 en Windows usando PowerShell MediaPlayer de forma fluida."""
+        """Reproduce un archivo MP3 en Windows cancelando audios anteriores para que no se sobrepongan."""
         abs_path = os.path.abspath(file_path)
         if not os.path.exists(abs_path):
             return
+
+        # Detener audio anterior para evitar solapamiento
+        self.stop()
 
         cmd = [
             "powershell",
@@ -90,7 +103,7 @@ class VoiceService:
             if wait:
                 subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                subprocess.Popen(
+                self._current_process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
@@ -99,7 +112,7 @@ class VoiceService:
             pass
 
     async def speak(self, text: str, wait: bool = False) -> None:
-        """Sintetiza y reproduce la voz de Yui de forma asíncrona y sin interrupciones."""
+        """Sintetiza y reproduce la voz de Yui de forma asíncrona e instantánea."""
         try:
             self._counter += 1
             temp_file = os.path.join(self.temp_dir, f"speech_{self._counter % 20}.mp3")
