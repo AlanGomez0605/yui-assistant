@@ -1,6 +1,7 @@
 import asyncio
 import datetime
-from typing import List, Dict, Any, Set
+import re
+from typing import List, Dict, Any, Set, Optional
 from fastapi import WebSocket
 from .memory_service import memory_service
 from .voice_service import voice_service
@@ -46,7 +47,7 @@ class ProactiveService:
         if not self.is_running:
             self.is_running = True
             self._task = asyncio.create_task(self._monitoring_loop())
-            print("[YUI PROACTIVE] Motor de recordatorios autónomos 24/7 iniciado.")
+            print("[YUI PROACTIVE] Motor de recordatorios autónomos 24/7 iniciado con sincronización de zona horaria.")
 
     def stop(self):
         self.is_running = False
@@ -54,18 +55,65 @@ class ProactiveService:
             self._task.cancel()
 
     async def _monitoring_loop(self):
-        """Ciclo en segundo plano que revisa recordatorios cada 5 segundos."""
+        """Ciclo en segundo plano que revisa recordatorios cada 3 segundos."""
         while self.is_running:
             try:
                 await self.check_pending_reminders()
             except Exception as e:
                 print(f"[YUI PROACTIVE] Error en ciclo de recordatorios: {e}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
+
+    def parse_due_timestamp(self, due_str: str, client_timezone_offset_hours: int = -6) -> Optional[float]:
+        """
+        Convierte cualquier formato de fecha/hora de recordatorio a timestamp Unix UTC real.
+        Por defecto usa UTC-6 (Horario estándar de México / Alan).
+        """
+        if not due_str:
+            return None
+
+        due_str = due_str.strip()
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        tz_user = datetime.timezone(datetime.timedelta(hours=client_timezone_offset_hours))
+        now_user = now_utc.astimezone(tz_user)
+
+        # 1. Formato completo 'YYYY-MM-DD HH:MM' o 'YYYY-MM-DD HH:MM:SS'
+        match_full = re.match(r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?', due_str)
+        if match_full:
+            year, month, day, hour, minute = map(int, match_full.groups()[:5])
+            second = int(match_full.group(6)) if match_full.group(6) else 0
+            dt_user = datetime.datetime(year, month, day, hour, minute, second, tzinfo=tz_user)
+            return dt_user.timestamp()
+
+        # 2. Formato de hora solo 'HH:MM am/pm' o 'HH:MM'
+        match_time = re.match(r'(\d{1,2}):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)?', due_str, re.IGNORECASE)
+        if match_time:
+            hour = int(match_time.group(1))
+            minute = int(match_time.group(2))
+            ampm = match_time.group(3)
+
+            if ampm:
+                ampm = ampm.lower().replace(".", "")
+                if ampm == "pm" and hour < 12:
+                    hour += 12
+                elif ampm == "am" and hour == 12:
+                    hour = 0
+
+            # Construir fecha para hoy en la zona horaria del usuario
+            dt_user = datetime.datetime(
+                now_user.year, now_user.month, now_user.day,
+                hour, minute, 0, tzinfo=tz_user
+            )
+
+            # Si la hora ya pasó hoy por más de 12 horas, programarlo para mañana
+            if dt_user.timestamp() < (now_utc.timestamp() - 600):
+                dt_user += datetime.timedelta(days=1)
+
+            return dt_user.timestamp()
+
+        return None
 
     async def check_pending_reminders(self):
-        now_dt = datetime.datetime.now()
-        now_str = now_dt.strftime("%Y-%m-%d %H:%M")
-        current_time_str = now_dt.strftime("%I:%M %p")
+        now_utc_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
 
         # Consultar recordatorios activos no notificados
         reminders = await memory_service.get_active_reminders()
@@ -77,21 +125,20 @@ class ProactiveService:
             if is_notified:
                 continue
 
-            # Comparar si la hora o fecha ya venció
-            # Soporta formatos 'YYYY-MM-DD HH:MM', 'HH:MM', etc.
-            should_trigger = False
-            
-            # Chequeo simple si coincide con la hora actual o ya pasó
-            if due_str in now_str or now_str >= due_str:
-                should_trigger = True
-            elif ":" in due_str and not "-" in due_str:
-                # Si solo especificó hora (ej. '03:33' o '3:33 am')
-                short_now = now_dt.strftime("%H:%M")
-                if due_str.strip() == short_now or due_str.lower().strip() == current_time_str.lower().strip():
-                    should_trigger = True
+            target_ts = self.parse_due_timestamp(due_str, client_timezone_offset_hours=-6)
+            if target_ts is None:
+                continue
 
-            if should_trigger:
-                await self.trigger_autonomous_reminder(r)
+            # El recordatorio debe dispararse ÚNICAMENTE cuando la hora actual >= hora fijada
+            # pero no si fue hace más de 1 hora de antigüedad (a menos que acabe de iniciar)
+            if now_utc_ts >= target_ts:
+                time_diff = now_utc_ts - target_ts
+                if time_diff <= 3600: # Disparar si ocurrió hace menos de 1 hora
+                    await self.trigger_autonomous_reminder(r)
+                else:
+                    # Si era muy viejo (días atrás), marcarlo como completado sin interrumpir
+                    rem_id = str(r.get("id") or r.get("_id", ""))
+                    await memory_service.complete_reminder(rem_id)
 
     async def trigger_autonomous_reminder(self, reminder: Dict[str, Any]):
         rem_id = str(reminder.get("id") or reminder.get("_id", ""))
@@ -99,16 +146,16 @@ class ProactiveService:
         description = reminder.get("description", "")
         owner_nick = settings.OWNER_NICKNAME
 
-        print(f"\n⚡ [YUI AUTÓNOMA] Disparando recordatorio: '{title}' para {owner_nick}!")
+        print(f"\n⚡ [YUI AUTÓNOMA] Disparando recordatorio a la hora exacta: '{title}' para {owner_nick}!")
+
+        # Marcar de inmediato como notificado en la base de datos para evitar dobles envíos
+        await memory_service.mark_reminder_notified(rem_id)
 
         # Mensaje espontáneo y dulce de Yui
         message_text = f"¡{owner_nick}! 🌸 Disculpa que te interrumpa, me pediste que te avisara: **{title}**."
         if description:
             message_text += f" ({description})"
         message_text += " ¡Aquí estoy para acompañarte!"
-
-        # Marcar como notificado en la base de datos
-        await memory_service.mark_reminder_notified(rem_id)
 
         # Generar audio con voz de Yui
         try:
