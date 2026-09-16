@@ -317,6 +317,13 @@ class YuiApp {
         }
     }
 
+    appendMessage(role, text) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `sao-msg ${role}`;
+
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const avatarIcon = role === 'user' ? '👤' : '🌸';
+
         let actionHtml = '';
 
         // Detectar y ejecutar acciones de control de teléfono en Android Companion o Web
