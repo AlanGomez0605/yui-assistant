@@ -411,18 +411,49 @@ class YuiApp {
             const res = await fetch('/api/reminders');
             const reminders = await res.json();
             if (reminders.length === 0) {
-                this.modalBodyReminders.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No tienes recordatorios pendientes.</p>';
+                this.modalBodyReminders.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No tienes recordatorios pendientes en la base de datos.</p>';
                 return;
             }
 
-            this.modalBodyReminders.innerHTML = reminders.map(r => `
-                <div class="sao-card-item">
+            const headerHtml = `
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+                    <button id="btnDeleteAllReminders" style="background: rgba(255,121,198,0.15); border: 1px solid var(--accent-pink); color: var(--accent-pink); padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">
+                        🗑️ Limpiar Todos los Recordatorios
+                    </button>
+                </div>
+            `;
+
+            const listHtml = reminders.map(r => `
+                <div class="sao-card-item" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <div class="sao-card-text">📌 <strong>${r.title}</strong></div>
                         <div class="sao-card-sub">Para: ${r.due_datetime} ${r.description ? '• ' + r.description : ''}</div>
                     </div>
+                    <button class="btn-del-reminder" data-id="${r.id}" style="background: transparent; border: none; color: var(--accent-pink); font-size: 1.1rem; cursor: pointer; padding: 0.3rem;" title="Eliminar de la BD">
+                        🗑️
+                    </button>
                 </div>
             `).join('');
+
+            this.modalBodyReminders.innerHTML = headerHtml + listHtml;
+
+            // Vincular eventos de eliminación
+            document.getElementById('btnDeleteAllReminders')?.addEventListener('click', async () => {
+                if (confirm("¿Seguro que deseas eliminar todos los recordatorios de la base de datos?")) {
+                    await fetch('/api/reminders', { method: 'DELETE' });
+                    this.openRemindersModal();
+                    this.loadSystemStatus();
+                }
+            });
+
+            document.querySelectorAll('.btn-del-reminder').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = btn.getAttribute('data-id');
+                    await fetch(`/api/reminders/${id}`, { method: 'DELETE' });
+                    this.openRemindersModal();
+                    this.loadSystemStatus();
+                });
+            });
 
         } catch (e) {
             this.modalBodyReminders.innerHTML = '<p class="sao-card-text" style="color: red;">Error cargando recordatorios.</p>';
@@ -443,17 +474,29 @@ class YuiApp {
             }
 
             this.modalBodyMemories.innerHTML = memories.map(m => `
-                <div class="sao-card-item">
-                    <div>
+                <div class="sao-card-item" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex: 1;">
                         <div class="sao-card-text">🧠 ${m.content}</div>
                     </div>
+                    <button class="btn-del-memory" data-id="${m.id}" style="background: transparent; border: none; color: var(--accent-pink); font-size: 1.1rem; cursor: pointer; padding: 0.3rem;" title="Eliminar recuerdo de la BD">
+                        🗑️
+                    </button>
                 </div>
             `).join('');
+
+            document.querySelectorAll('.btn-del-memory').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = btn.getAttribute('data-id');
+                    await fetch(`/api/memories/${id}`, { method: 'DELETE' });
+                    this.openMemoriesModal();
+                });
+            });
 
         } catch (e) {
             this.modalBodyMemories.innerHTML = '<p class="sao-card-text" style="color: red;">Error cargando recuerdos.</p>';
         }
     }
+
 
     async openContactsModal() {
         window.saoAudio?.playMenuOpen();

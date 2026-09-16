@@ -16,14 +16,18 @@ from ..core.config import get_settings
 
 settings = get_settings()
 
-EXTRACTION_SYSTEM_PROMPT = """Eres el subsistema cognitivo de extracción y actualización de memoria de Yui (MHCP-0001).
+EXTRACTION_SYSTEM_PROMPT = """Eres el subsistema cognitivo de extracción, actualización y eliminación de memoria de Yui (MHCP-0001).
 Tu misión es analizar el último intercambio entre el usuario ({owner_name}) y Yui, y extraer:
 1. Nuevos recordatorios o tareas solicitadas.
-   - IMPORTANTE: La hora y fecha actual de {owner_name} es: {client_time}.
-   - Si {owner_name} dice "en 5 minutos", "a las 3:33 am", "mañana a las 9 am", calcula la fecha y hora EXACTA resultante en formato "YYYY-MM-DD HH:MM" basándote en su hora actual.
-2. Nuevos hechos, gustos, o preferencias del usuario, CAPTURANDO EL MOTIVO O HISTORIA EMOCIONAL SI LO MENCIONÓ.
-3. Correcciones o cambios sobre datos anteriores.
-4. Recordatorios que el usuario haya indicado que ya completó o canceló.
+   - Hora actual de {owner_name}: {client_time}.
+   - Si {owner_name} dice "en 5 minutos" o "a las 3:35 am", calcula la fecha y hora en formato "YYYY-MM-DD HH:MM".
+2. Eliminación física de recordatorios:
+   - Si {owner_name} dice "borra mis recordatorios", "elimina todos los recordatorios", "limpia los pendientes": marca "delete_all_reminders": true.
+   - Si pide borrar uno específico (ej. "borra el de cambiar la música"): pon su título en "delete_reminder_titles": ["cambiar la música"].
+3. Nuevos hechos, gustos o preferencias de {owner_name} con su motivo emocional.
+4. Eliminación de recuerdos:
+   - Si {owner_name} dice "olvida que...", "borra lo de mi color favorito": pon el tema en "delete_memory_topics": ["color favorito"].
+5. Recordatorios que el usuario haya indicado que completó.
 
 Responde ÚNICAMENTE con un JSON válido:
 {{
@@ -34,16 +38,19 @@ Responde ÚNICAMENTE con un JSON válido:
       "description": "Detalles adicionales o null"
     }}
   ],
+  "delete_all_reminders": false,
+  "delete_reminder_titles": [],
+  "completed_reminder_ids": [],
   "new_memories": [
     {{
-      "content": "Hecho redactado en 3ra persona (ej. 'El color favorito de Alan es el café.')",
+      "content": "Hecho en 3ra persona",
       "category": "preference" | "place" | "habit" | "project" | "fact",
       "importance": 1 a 5,
-      "topic_keywords": ["color favorito"],
-      "reason_or_story": "Motivo, anécdota o explicación que dio el usuario, o null"
+      "topic_keywords": ["tema"],
+      "reason_or_story": "Motivo o null"
     }}
   ],
-  "completed_reminder_ids": []
+  "delete_memory_topics": []
 }}
 """
 
@@ -57,7 +64,7 @@ class MemoryExtractorService:
         assistant_reply: str,
         client_time: Optional[str] = None
     ) -> None:
-        """Analiza la interacción y actualiza la memoria persistente con hora local precisa."""
+        """Analiza la interacción y actualiza o elimina registros en la base de datos."""
         if not self.gemini.is_configured():
             return
 
@@ -96,7 +103,21 @@ class MemoryExtractorService:
 
             data = json.loads(cleaned_text)
 
-            # 1. Guardar recordatorios
+            # 1. Eliminación de recordatorios si Alan lo pidió
+            if data.get("delete_all_reminders") is True:
+                print(f"[YUI DB] Eliminando TODOS los recordatorios de {settings.OWNER_NICKNAME}...")
+                await memory_service.delete_all_reminders()
+
+            for title_to_del in data.get("delete_reminder_titles", []):
+                print(f"[YUI DB] Eliminando recordatorio que coincide con: '{title_to_del}'...")
+                await memory_service.delete_reminders_by_title(title_to_del)
+
+            # 2. Eliminación de recuerdos por tema
+            for topic_to_del in data.get("delete_memory_topics", []):
+                print(f"[YUI DB] Eliminando recuerdos del tema: '{topic_to_del}'...")
+                await memory_service.delete_memory_by_topic(topic_to_del)
+
+            # 3. Guardar nuevos recordatorios
             for rem in data.get("new_reminders", []):
                 title = rem.get("title")
                 due = rem.get("due_datetime")
@@ -104,7 +125,7 @@ class MemoryExtractorService:
                 if title and due:
                     await memory_service.add_reminder(title=title, due_datetime=due, description=desc)
 
-            # 2. Guardar o actualizar recuerdos con sus motivos
+            # 4. Guardar o actualizar recuerdos con sus motivos
             for mem in data.get("new_memories", []):
                 content = mem.get("content")
                 cat = mem.get("category", "fact")
@@ -120,15 +141,15 @@ class MemoryExtractorService:
                         reason_or_story=reason
                     )
 
-            # 3. Completar recordatorios
+            # 5. Completar recordatorios
             for rem_id in data.get("completed_reminder_ids", []):
                 try:
                     await memory_service.complete_reminder(rem_id)
                 except Exception:
                     pass
 
-            # 4. Guardar la conversación completa como documento permanente
+            # 6. Guardar la conversación completa como documento permanente
             await memory_service.save_conversation_exchange(user_message, assistant_reply)
 
         except Exception as e:
-            logging.error(f"Error en extracción automática de memoria: {e}")
+            logging.error(f"Error en extracción/eliminación automática de memoria: {e}")

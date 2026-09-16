@@ -183,6 +183,26 @@ async def create_reminder(req: ReminderCreate):
     )
     return {"status": "created", "id": reminder.get("id"), "title": reminder.get("title")}
 
+@router.delete("/reminders")
+async def delete_all_reminders():
+    """Elimina físicamente todos los recordatorios."""
+    count = await memory_service.delete_all_reminders()
+    return {"status": "deleted_all", "count": count}
+
+@router.delete("/reminders/{reminder_id}")
+async def delete_single_reminder(reminder_id: str):
+    """Elimina físicamente un recordatorio de MongoDB Atlas."""
+    success = await memory_service.delete_reminder(reminder_id)
+    return {"status": "deleted", "id": reminder_id, "success": success}
+
+
 @router.get("/memories")
 async def get_memories():
     return await memory_service.get_all_memories()
+
+@router.delete("/memories/{memory_id}")
+async def delete_single_memory(memory_id: str):
+    """Elimina físicamente un recuerdo de MongoDB Atlas."""
+    success = await memory_service.delete_memory(memory_id)
+    return {"status": "deleted", "id": memory_id, "success": success}
+

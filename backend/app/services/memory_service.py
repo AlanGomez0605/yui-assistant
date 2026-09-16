@@ -31,6 +31,7 @@ class MemoryService:
             "due_datetime": due_datetime.strip(),
             "description": description.strip() if description else None,
             "is_completed": False,
+            "is_notified": False,
             "created_at": now_str
         }
 
@@ -122,6 +123,65 @@ class MemoryService:
             pass
         return True
 
+    async def delete_reminder(self, reminder_id: Any) -> bool:
+        """Elimina físicamente un recordatorio de MongoDB Atlas y SQLite."""
+        await self.ensure_db()
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            from bson import ObjectId
+            try:
+                await coll.delete_one({"_id": ObjectId(str(reminder_id))})
+            except Exception:
+                await coll.delete_one({"id": str(reminder_id)})
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = delete(Reminder).where(Reminder.id == int(reminder_id))
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return True
+
+    async def delete_all_reminders(self) -> int:
+        """Elimina físicamente TODOS los recordatorios de la base de datos."""
+        await self.ensure_db()
+        deleted_count = 0
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            res = await coll.delete_many({})
+            deleted_count = res.deleted_count
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = delete(Reminder)
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return deleted_count
+
+    async def delete_reminders_by_title(self, title_query: str) -> int:
+        """Elimina recordatorios que coincidan con un texto o título."""
+        await self.ensure_db()
+        if not title_query:
+            return 0
+        deleted_count = 0
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            import re
+            regex = re.compile(re.escape(title_query), re.IGNORECASE)
+            res = await coll.delete_many({"title": regex})
+            deleted_count = res.deleted_count
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = delete(Reminder).where(Reminder.title.ilike(f"%{title_query}%"))
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return deleted_count
 
     # =========================================================================
     # RECUERDOS Y HECHOS CON CONTEXTO Y MOTIVOS EMOCIONALES
@@ -225,9 +285,48 @@ class MemoryService:
                 for m in memories
             ]
 
+    async def delete_memory(self, memory_id: Any) -> bool:
+        """Elimina físicamente un recuerdo de MongoDB Atlas y SQLite."""
+        await self.ensure_db()
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("memories")
+            from bson import ObjectId
+            try:
+                await coll.delete_one({"_id": ObjectId(str(memory_id))})
+            except Exception:
+                await coll.delete_one({"id": str(memory_id)})
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = delete(Memory).where(Memory.id == int(memory_id))
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return True
+
+    async def delete_memory_by_topic(self, topic: str) -> int:
+        """Elimina recuerdos por palabra clave de tema."""
+        await self.ensure_db()
+        deleted_count = 0
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("memories")
+            res = await coll.delete_many({"topic_keywords": topic})
+            deleted_count = res.deleted_count
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = delete(Memory).where(Memory.content.ilike(f"%{topic}%"))
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return deleted_count
+
     async def save_message(self, role: str, content: str, session_id: str = "default") -> None:
         """Compatibilidad para guardar mensajes individuales."""
         pass
+
     async def save_conversation_exchange(self, user_message: str, assistant_reply: str, session_id: str = "default") -> None:
         """Guarda permanentemente cada intercambio de conversación con marcas de tiempo íntegras."""
         await self.ensure_db()
@@ -292,7 +391,7 @@ class MemoryService:
             context_parts.append("📌 RECORDATORIOS Y PENDIENTES ACTIVOS DE ALAN:")
             for r in reminders:
                 desc = f" ({r['description']})" if r.get('description') else ""
-                context_parts.append(f"  • {r['title']} - Para: {r['due_datetime']}{desc}")
+                context_parts.append(f"  • [ID: {r.get('id')}] {r['title']} - Para: {r['due_datetime']}{desc}")
         else:
             context_parts.append("📌 RECORDATORIOS: No hay recordatorios pendientes.")
 
@@ -300,7 +399,7 @@ class MemoryService:
         if memories:
             context_parts.append("\n🧠 RECUERDOS Y DETALLES CONFIRMADOS SOBRE ALAN (Incluyendo motivos y anécdotas):")
             for m in memories:
-                context_parts.append(f"  • {m['content']}")
+                context_parts.append(f"  • [ID: {m.get('id')}] {m['content']}")
 
         # Resumen de conversaciones pasadas
         if recent_chats:
