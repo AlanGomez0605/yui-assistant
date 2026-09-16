@@ -87,9 +87,10 @@ class CallInterceptorReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
             try {
+                @Suppress("DEPRECATION")
                 telecomManager?.acceptRingingCall()
-            } catch (e: SecurityException) {
-                Log.e(TAG, "Permiso ANSWER_PHONE_CALLS requerido", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Permiso o error al contestar", e)
             }
         }
     }
@@ -99,8 +100,8 @@ class CallInterceptorReceiver : BroadcastReceiver() {
             val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
             try {
                 telecomManager?.endCall()
-            } catch (e: SecurityException) {
-                Log.e(TAG, "Permiso ANSWER_PHONE_CALLS requerido para finalizar", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Permiso o error al finalizar", e)
             }
         }
     }
