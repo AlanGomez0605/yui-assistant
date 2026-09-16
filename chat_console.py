@@ -2,7 +2,7 @@ import asyncio
 import sys
 import warnings
 
-# Silenciar advertencias internas de librerías para una salida limpia
+# Silenciar advertencias de consola
 warnings.filterwarnings("ignore")
 
 from backend.app.services.gemini_service import gemini_service
@@ -26,36 +26,52 @@ async def main():
 
     history = []
 
-    print("🌸 Estableciendo enlace mental con Yui...")
-    welcome = await gemini_service.generate_reply(
+    print("🌸 Estableciendo enlace mental con Yui...\n")
+    sys.stdout.write("🌸 Yui:\n")
+    sys.stdout.flush()
+
+    initial_greeting = []
+    async for chunk in gemini_service.generate_reply_stream(
         "¡Hola Yui! He abierto el canal directo de comunicación contigo.",
         history
-    )
-    print(f"\n🌸 Yui:\n{welcome}\n")
-    print("─" * 65)
+    ):
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+        initial_greeting.append(chunk)
+
+    full_welcome = "".join(initial_greeting)
+    print("\n\n" + "─" * 65)
     history.append({"role": "user", "content": "¡Hola Yui! He abierto el canal directo de comunicación contigo."})
-    history.append({"role": "assistant", "content": welcome})
+    history.append({"role": "assistant", "content": full_welcome})
 
     while True:
         try:
             user_input = input(f"\n💬 {settings.OWNER_NICKNAME}: ").strip()
             if not user_input:
                 continue
+
             if user_input.lower() in ["salir", "exit", "quit", "adios", "adiós"]:
-                farewell = await gemini_service.generate_reply("Yui, voy a cerrar la sesión por ahora. Nos vemos pronto.", history)
-                print(f"\n🌸 Yui:\n{farewell}\n")
-                print("═" * 65)
+                print("\n🌸 Yui:\n", end="", flush=True)
+                async for chunk in gemini_service.generate_reply_stream("Yui, voy a cerrar la sesión por ahora. Nos vemos pronto.", history):
+                    sys.stdout.write(chunk)
+                    sys.stdout.flush()
+                print("\n\n" + "═" * 65)
                 print("🌸 Enlace cerrado. ¡Que tengas un excelente día!")
                 break
 
-            print("\n🌸 Yui está pensando...")
-            reply = await gemini_service.generate_reply(user_input, history)
-            print(f"\n🌸 Yui:\n{reply}\n")
-            print("─" * 65)
+            print("\n🌸 Yui:\n", end="", flush=True)
+            reply_chunks = []
+            async for chunk in gemini_service.generate_reply_stream(user_input, history):
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                reply_chunks.append(chunk)
+
+            full_reply = "".join(reply_chunks)
+            print("\n\n" + "─" * 65)
 
             # Guardar en el historial de la sesión
             history.append({"role": "user", "content": user_input})
-            history.append({"role": "assistant", "content": reply})
+            history.append({"role": "assistant", "content": full_reply})
 
         except (KeyboardInterrupt, EOFError):
             print("\n\n🌸 Yui: ¡Hasta luego Alan! Estaré aquí esperándote cuando me necesites.")
