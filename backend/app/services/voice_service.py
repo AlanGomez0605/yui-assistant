@@ -2,8 +2,7 @@ import os
 import re
 import asyncio
 import logging
-import ctypes
-import tempfile
+import subprocess
 from typing import Optional
 import edge_tts
 from ..core.config import get_settings
@@ -16,22 +15,18 @@ class VoiceService:
         self.rate = settings.TTS_RATE
         self.pitch = settings.TTS_PITCH
         self.temp_dir = os.path.abspath("./data/temp_audio")
+        self.ps_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "play_audio.ps1"))
         os.makedirs(self.temp_dir, exist_ok=True)
-        self._is_speaking = False
+        self._current_process = None
 
     def clean_text_for_speech(self, text: str) -> str:
         """Limpia asteriscos de rolplay (*sonríe*), emojis y símbolos para una locución fluida y natural."""
-        # 1. Remover asteriscos de acciones/emociones tipo *sonríe* o *^o^*
         cleaned = re.sub(r'\*[^*]+\*', '', text)
         cleaned = re.sub(r'\([^\)]*risa[^\)]*\)', '', cleaned, flags=re.IGNORECASE)
-        # 2. Remover emoticonos comunes de anime
         cleaned = re.sub(r'\*[oO\^_\-]+\*', '', cleaned)
         cleaned = re.sub(r'[\^oO\-_]{3,}', '', cleaned)
-        # 3. Remover emojis
         cleaned = re.sub(r'[\U00010000-\U0010ffff]', '', cleaned)
-        # 4. Remover markdown decorativo (negritas, cursivas, links)
         cleaned = cleaned.replace("**", "").replace("*", "").replace("#", "").replace("`", "")
-        # 5. Normalizar espacios
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
         return cleaned
 
@@ -69,32 +64,32 @@ class VoiceService:
         return True
 
     def play_audio_file(self, file_path: str, wait: bool = False) -> None:
-        """Reproduce un archivo MP3 de forma nativa en Windows sin librerías externas."""
+        """Reproduce un archivo MP3 en Windows usando PowerShell MediaPlayer de forma no bloqueante."""
         abs_path = os.path.abspath(file_path)
         if not os.path.exists(abs_path):
             return
 
-        def _play():
-            try:
-                # Usar Windows MCI (Media Control Interface) nativo
-                winmm = ctypes.windll.winmm
-                alias = f"yui_voice_{int(asyncio.get_event_loop().time() * 1000) % 100000}"
-                winmm.mciSendStringW(f'open "{abs_path}" type mpegvideo alias {alias}', None, 0, None)
-                wait_flag = " wait" if wait else ""
-                winmm.mciSendStringW(f'play {alias}{wait_flag}', None, 0, None)
-                if not wait:
-                    # Cerrar después de un tiempo aproximado si no es wait
-                    pass
-            except Exception as e:
-                logging.error(f"Error reproduciendo audio: {e}")
+        cmd = [
+            "powershell",
+            "-ExecutionPolicy", "Bypass",
+            "-File", self.ps_script,
+            "-FilePath", abs_path
+        ]
 
-        if wait:
-            _play()
-        else:
-            asyncio.get_event_loop().run_in_executor(None, _play)
+        try:
+            if wait:
+                subprocess.run(cmd, check=False)
+            else:
+                self._current_process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+        except Exception as e:
+            logging.error(f"Error reproduciendo audio: {e}")
 
     async def speak(self, text: str, wait: bool = False) -> None:
-        """Sintetiza y reproduce la voz de Yui."""
+        """Sintetiza y reproduce la voz de Yui de forma fluida."""
         try:
             temp_file = os.path.join(self.temp_dir, "speech_latest.mp3")
             success = await self.synthesize_to_file(text, temp_file)
@@ -103,5 +98,4 @@ class VoiceService:
         except Exception as e:
             logging.error(f"Error al hablar: {e}")
 
-# Instancia singleton del servicio de voz
 voice_service = VoiceService()
