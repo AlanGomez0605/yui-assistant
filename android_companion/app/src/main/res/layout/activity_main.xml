@@ -4,101 +4,111 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#060A11"
-    android:padding="16dp">
+    android:background="#060A11">
 
-    <!-- Header SAO -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="YUI MHCP-0001"
-        android:textColor="#FF79C6"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="4dp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Android Companion &amp; Call Shield"
-        android:textColor="#8BE9FD"
-        android:textSize="12sp"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="16dp" />
-
-    <!-- Configuración URL de Nube -->
+    <!-- Barra Superior Compacta SAO (Controles Nativos) -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="50dp"
         android:orientation="horizontal"
-        android:layout_marginBottom="12dp">
+        android:gravity="center_vertical"
+        android:background="#0B1320"
+        android:paddingHorizontal="10dp"
+        android:elevation="4dp">
 
-        <EditText
-            android:id="@+id/etBackendUrl"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="https://web-production-7eeaa.up.railway.app"
-            android:textColor="#F8F8F2"
-            android:textColorHint="#6272A4"
-            android:background="#151922"
-            android:padding="12dp"
-            android:textSize="13sp" />
-
-        <Button
-            android:id="@+id/btnSaveUrl"
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Guardar"
-            app:backgroundTint="#BD93F9"
-            android:textColor="#060A11"
+            android:text="🌸 YUI"
+            android:textColor="#FF79C6"
+            android:textSize="15sp"
             android:textStyle="bold"
-            android:layout_marginStart="8dp" />
-    </LinearLayout>
-
-    <!-- Botones de Control Móvil -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="12dp">
+            android:layout_marginEnd="8dp" />
 
         <Button
             android:id="@+id/btnStartOverlay"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="36dp"
             android:layout_weight="1"
-            android:text="Activar Burbuja"
+            android:text="Burbuja"
+            android:textSize="11sp"
+            android:padding="0dp"
             app:backgroundTint="#FF79C6"
             android:textColor="#060A11"
             android:textStyle="bold"
-            android:layout_marginEnd="6dp" />
+            android:layout_marginEnd="4dp" />
 
         <Button
             android:id="@+id/btnSyncContacts"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="36dp"
             android:layout_weight="1"
-            android:text="Sincronizar Contactos"
+            android:text="Contactos"
+            android:textSize="11sp"
+            android:padding="0dp"
             app:backgroundTint="#50FA7B"
+            android:textColor="#060A11"
+            android:textStyle="bold"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/btnToggleSettings"
+            android:layout_width="38dp"
+            android:layout_height="36dp"
+            android:text="⚙"
+            android:textSize="13sp"
+            android:padding="0dp"
+            app:backgroundTint="#282A36"
+            android:textColor="#8BE9FD" />
+    </LinearLayout>
+
+    <!-- Panel Desplegable de Configuración URL (Oculto por defecto) -->
+    <LinearLayout
+        android:id="@+id/panelSettings"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#151922"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/etBackendUrl"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:hint="https://web-production-7eeaa.up.railway.app"
+            android:textColor="#F8F8F2"
+            android:textColorHint="#6272A4"
+            android:background="#060A11"
+            android:paddingHorizontal="10dp"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnSaveUrl"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="Guardar"
+            android:textSize="11sp"
+            app:backgroundTint="#BD93F9"
             android:textColor="#060A11"
             android:textStyle="bold"
             android:layout_marginStart="6dp" />
     </LinearLayout>
 
-    <!-- Estado -->
+    <!-- Estado Rápido -->
     <TextView
         android:id="@+id/tvStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Sistema listo. Toca Activar Burbuja para tener a Yui flotando siempre."
-        android:textColor="#50FA7B"
-        android:textSize="12sp"
+        android:text="Yui SAO lista."
+        android:textColor="#8BE9FD"
+        android:textSize="11sp"
         android:gravity="center"
-        android:layout_marginBottom="12dp" />
+        android:paddingVertical="2dp"
+        android:background="#060A11" />
 
-    <!-- WebView SAO Embebido -->
+    <!-- WebView SAO Full Screen -->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"

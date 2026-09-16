@@ -614,3 +614,136 @@ body {
   color: var(--accent-gold);
   margin-top: 4px;
 }
+
+/* ==============================================================================
+   RESPONSIVE DESIGN (MOBILE & SMALL SCREENS)
+   ============================================================================== */
+
+@media (max-width: 860px) {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sao-header {
+    padding: 8px 12px;
+    height: 52px;
+    flex-shrink: 0;
+  }
+
+  .sao-title {
+    font-size: 0.95rem;
+    letter-spacing: 1px;
+  }
+
+  .sao-subtitle {
+    font-size: 0.65rem;
+  }
+
+  .sao-status-group {
+    gap: 6px;
+  }
+
+  .sao-badge {
+    padding: 2px 6px;
+    font-size: 0.65rem;
+  }
+
+  .sao-btn-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 0.85rem;
+  }
+
+  .sao-main-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    margin: 0;
+    max-width: 100%;
+    height: calc(100% - 52px);
+    overflow: hidden;
+    gap: 0;
+  }
+
+  /* Ocultar avatar lateral en móviles para priorizar la conversación */
+  .sao-avatar-panel {
+    display: none;
+  }
+
+  .sao-chat-panel {
+    flex: 1;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sao-chat-header {
+    padding: 6px 12px;
+    flex-shrink: 0;
+  }
+
+  .sao-messages-container {
+    flex: 1;
+    padding: 10px 8px;
+    gap: 10px;
+    overflow-y: auto;
+  }
+
+  .sao-msg {
+    max-width: 92%;
+    gap: 6px;
+  }
+
+  .sao-msg-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 0.85rem;
+  }
+
+  .sao-msg-bubble {
+    padding: 8px 12px;
+    font-size: 0.88rem;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .sao-input-bar {
+    padding: 8px 10px;
+    gap: 8px;
+    flex-shrink: 0;
+    background: rgba(6, 12, 20, 0.98);
+  }
+
+  .sao-input {
+    min-width: 0;
+    flex: 1;
+    padding: 9px 14px;
+    font-size: 0.88rem;
+  }
+
+  .sao-mic-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    font-size: 1.05rem;
+    flex-shrink: 0;
+  }
+
+  .sao-send-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+}

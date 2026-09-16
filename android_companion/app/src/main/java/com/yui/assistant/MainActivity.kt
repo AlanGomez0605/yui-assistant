@@ -28,6 +28,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSaveUrl: Button
     private lateinit var btnStartOverlay: Button
     private lateinit var btnSyncContacts: Button
+    private lateinit var btnToggleSettings: Button
+    private lateinit var panelSettings: android.view.View
     private lateinit var tvStatus: TextView
     private lateinit var webView: WebView
 
@@ -50,10 +52,20 @@ class MainActivity : AppCompatActivity() {
         btnSaveUrl = findViewById(R.id.btnSaveUrl)
         btnStartOverlay = findViewById(R.id.btnStartOverlay)
         btnSyncContacts = findViewById(R.id.btnSyncContacts)
+        btnToggleSettings = findViewById(R.id.btnToggleSettings)
+        panelSettings = findViewById(R.id.panelSettings)
         tvStatus = findViewById(R.id.tvStatus)
         webView = findViewById(R.id.webView)
 
         setupWebView()
+
+        btnToggleSettings.setOnClickListener {
+            panelSettings.visibility = if (panelSettings.visibility == android.view.View.VISIBLE) {
+                android.view.View.GONE
+            } else {
+                android.view.View.VISIBLE
+            }
+        }
 
         btnSaveUrl.setOnClickListener {
             val url = etBackendUrl.text.toString().trim()
@@ -61,6 +73,7 @@ class MainActivity : AppCompatActivity() {
                 ApiClient.setBackendUrl(this, url)
                 Toast.makeText(this, "URL de Yui Cloud guardada", Toast.LENGTH_SHORT).show()
                 webView.loadUrl(url)
+                panelSettings.visibility = android.view.View.GONE
             }
         }
 
