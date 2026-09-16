@@ -1,22 +1,53 @@
 import os
+import sys
+
+# Asegurar UTF-8 en Windows para evitar errores de codificación en consola
+try:
+    if sys.stdout:
+        sys.stdout.reconfigure(encoding='utf-8')
+    if sys.stderr:
+        sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 try:
     from backend.app.core.config import get_settings
     from backend.app.api.endpoints import router as api_router
+    from backend.app.core.mongodb import mongodb_manager
+    from backend.app.core.database import init_db
 except ImportError:
     from app.core.config import get_settings
     from app.api.endpoints import router as api_router
+    from app.core.mongodb import mongodb_manager
+    from app.core.database import init_db
 
 settings = get_settings()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Inicializar bases de datos antes de recibir solicitudes
+    print("[YUI] Conectando con MongoDB Atlas y SQLite local...")
+    try:
+        await mongodb_manager.connect()
+        await init_db()
+        print("[YUI] Bases de datos listas y sincronizadas.")
+    except Exception as e:
+        print(f"[YUI] Aviso al iniciar bases de datos: {e}")
+    yield
+    print("[YUI] Servidor finalizado.")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Backend y Núcleo Cognitivo de Yui (MHCP-0001)",
-    debug=settings.DEBUG
+    debug=settings.DEBUG,
+    lifespan=lifespan
 )
 
 # Permitir CORS para conexiones desde frontend web / móvil / local
@@ -28,15 +59,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Incluir rutas API
+# 1. Incluir rutas de la API primero
 app.include_router(api_router, prefix="/api")
 
-# Montar interfaz web estilo Sword Art Online
+# 2. Servir recursos estáticos (CSS, JS, Assets)
 frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
-if os.path.exists(frontend_dir):
-    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+styles_dir = os.path.join(frontend_dir, "styles")
+scripts_dir = os.path.join(frontend_dir, "scripts")
+assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
+
+if os.path.exists(styles_dir):
+    app.mount("/styles", StaticFiles(directory=styles_dir), name="styles")
+if os.path.exists(scripts_dir):
+    app.mount("/scripts", StaticFiles(directory=scripts_dir), name="scripts")
+if os.path.exists(assets_dir):
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+# 3. Ruta principal de la Interfaz SAO
+@app.get("/")
+async def serve_index():
+    index_file = os.path.join(frontend_dir, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    return {"message": f"Núcleo de {settings.ASSISTANT_NAME} en línea."}
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"\n🌸 Iniciando servidor de {settings.ASSISTANT_NAME} en http://localhost:{settings.PORT}")
+    print(f"\n[YUI] Servidor de Yui activo en http://localhost:{settings.PORT}")
     uvicorn.run("backend.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)
