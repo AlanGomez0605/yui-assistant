@@ -85,8 +85,13 @@ class FloatingOverlayService : Service() {
 
         // Crear contenedor visual de la burbuja SAO
         val bubbleFrame = FrameLayout(this).apply {
-            setPadding(16, 16, 16, 16)
-            setBackgroundResource(android.R.drawable.dialog_holo_dark_frame)
+            setPadding(20, 20, 20, 20)
+            val bgDrawable = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xEE060A11.toInt())
+                setStroke(3, 0xFFFF79C6.toInt())
+                cornerRadius = 40f
+            }
+            background = bgDrawable
         }
 
         val bubbleText = TextView(this).apply {
