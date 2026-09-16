@@ -1,5 +1,13 @@
 import os
+import logging
+import warnings
 from typing import List, Dict, Optional
+
+# Silenciar advertencias internas de Google GenAI
+warnings.filterwarnings("ignore")
+logging.getLogger("google").setLevel(logging.ERROR)
+logging.getLogger("google.genai").setLevel(logging.ERROR)
+
 from google import genai
 from google.genai import types
 from ..core.config import get_settings
@@ -10,7 +18,13 @@ settings = get_settings()
 class GeminiYuiService:
     def __init__(self):
         self.api_key = settings.GEMINI_API_KEY
-        self.model_name = "gemini-3.6-flash"  # Modelo de alta velocidad y razonamiento óptimo
+        # Modelos activos en orden de velocidad y estabilidad
+        self.preferred_models = [
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-2.5-pro"
+        ]
         self.system_prompt = get_yui_system_prompt(
             owner_name=settings.OWNER_NAME,
             owner_nickname=settings.OWNER_NICKNAME
@@ -39,43 +53,42 @@ class GeminiYuiService:
                 f"Por favor revísala para que podamos conversar."
             )
 
-        try:
-            # Construir historial previo si existe
-            contents = []
-            if chat_history:
-                for msg in chat_history:
-                    role = "user" if msg.get("role") in ["user", "human"] else "model"
-                    contents.append(
-                        types.Content(
-                            role=role,
-                            parts=[types.Part.from_text(text=msg.get("content", ""))]
-                        )
+        # Construir historial previo formateado
+        formatted_history = []
+        if chat_history:
+            for msg in chat_history:
+                role = "user" if msg.get("role") in ["user", "human"] else "model"
+                formatted_history.append(
+                    types.Content(
+                        role=role,
+                        parts=[types.Part.from_text(text=msg.get("content", ""))]
                     )
-
-            # Agregar el mensaje actual del usuario
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=message)]
                 )
-            )
 
-            config = types.GenerateContentConfig(
-                system_instruction=self.system_prompt,
-                temperature=0.75,
-                top_p=0.95
-            )
+        config = types.GenerateContentConfig(
+            system_instruction=self.system_prompt,
+            temperature=0.75,
+            top_p=0.95
+        )
 
-            # Ejecutar llamada asíncrona al modelo
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=config
-            )
+        last_error = None
+        # Intentar con la lista de modelos en cascada
+        for model_name in self.preferred_models:
+            try:
+                chat = self.client.aio.chats.create(
+                    model=model_name,
+                    config=config,
+                    history=formatted_history
+                )
+                response = await chat.send_message(message)
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                last_error = e
+                # Continuar al siguiente modelo si hubo 503 o error temporal
+                continue
 
-            return response.text.strip() if response.text else "..."
-        except Exception as e:
-            return f"🌸 Lo siento mucho {settings.OWNER_NICKNAME}, ocurrió un detalle al conectar con mis pensamientos: {str(e)}"
+        return f"🌸 Lo siento mucho {settings.OWNER_NICKNAME}, mis pensamientos están algo saturados por el momento: {str(last_error)}"
 
 # Instancia singleton del servicio
 gemini_service = GeminiYuiService()
