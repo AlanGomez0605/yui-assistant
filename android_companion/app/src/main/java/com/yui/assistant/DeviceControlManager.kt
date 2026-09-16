@@ -69,6 +69,8 @@ object DeviceControlManager {
                 phone = "52$phone"
             }
 
+            YuiAccessibilityService.pendingWhatsAppAutoSend = true
+
             val encodedMsg = java.net.URLEncoder.encode(message, "UTF-8")
             val uri = android.net.Uri.parse("https://api.whatsapp.com/send?phone=$phone&text=$encodedMsg")
             val intent = Intent(Intent.ACTION_VIEW, uri).apply {

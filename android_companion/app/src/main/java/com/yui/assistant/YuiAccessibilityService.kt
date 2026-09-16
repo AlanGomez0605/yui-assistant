@@ -18,6 +18,7 @@ class YuiAccessibilityService : AccessibilityService() {
         var instance: YuiAccessibilityService? = null
             private set
 
+        var pendingWhatsAppAutoSend = false
         private var isWhatsAppCallRinging = false
         private var whatsappRingingStartTime = 0L
     }
@@ -33,10 +34,39 @@ class YuiAccessibilityService : AccessibilityService() {
 
         val pkg = event.packageName?.toString() ?: ""
 
-        // Detección de Llamadas de WhatsApp (VoIP)
         if (pkg == "com.whatsapp") {
             handleWhatsAppCallEvent(event)
+            if (pendingWhatsAppAutoSend) {
+                CoroutineScope(Dispatchers.Main).launch {
+                    delay(600L)
+                    val sent = tryAutoSendWhatsAppMessage()
+                    if (sent) {
+                        pendingWhatsAppAutoSend = false
+                        Log.d(TAG, "Mensaje de WhatsApp enviado automáticamente.")
+                    }
+                }
+            }
         }
+    }
+
+    fun tryAutoSendWhatsAppMessage(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val sendById = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
+        if (!sendById.isNullOrEmpty()) {
+            for (node in sendById) {
+                if (node.isClickable) return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        }
+        val sendKeywords = listOf("Enviar", "Send")
+        for (kw in sendKeywords) {
+            val nodes = root.findAccessibilityNodeInfosByText(kw)
+            if (!nodes.isNullOrEmpty()) {
+                for (node in nodes) {
+                    if (node.isClickable) return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                }
+            }
+        }
+        return false
     }
 
     private fun handleWhatsAppCallEvent(event: AccessibilityEvent) {
