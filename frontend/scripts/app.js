@@ -143,18 +143,38 @@ class YuiApp {
             this.speakReply(data.message);
         }
 
-        // 4. Mostrar Notificación Push del Sistema (incluso en segundo plano)
+        // 4. Mostrar Notificación Push del Sistema y Vibración Móvil
         if ("Notification" in window && Notification.permission === "granted") {
             try {
-                new Notification("🌸 Yui (MHCP-0001)", {
-                    body: `📌 ${data.title}: ${data.message.replace(/\*\*/g, '')}`,
-                    icon: "/assets/icon-192.png",
-                    badge: "/assets/icon-192.png",
-                    requireInteraction: true
-                });
+                if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+                    navigator.serviceWorker.ready.then(reg => {
+                        reg.showNotification("🌸 Yui (MHCP-0001)", {
+                            body: `📌 ${data.title}: ${data.message.replace(/\*\*/g, '')}`,
+                            icon: "/assets/yui_avatar.jpg",
+                            badge: "/assets/yui_avatar.jpg",
+                            vibrate: [200, 100, 200, 100, 400],
+                            tag: 'yui-reminder-' + Date.now(),
+                            requireInteraction: true
+                        });
+                    });
+                } else {
+                    new Notification("🌸 Yui (MHCP-0001)", {
+                        body: `📌 ${data.title}: ${data.message.replace(/\*\*/g, '')}`,
+                        icon: "/assets/yui_avatar.jpg",
+                        badge: "/assets/yui_avatar.jpg",
+                        requireInteraction: true
+                    });
+                }
             } catch (e) {
                 console.warn('Error mostrando notificación:', e);
             }
+        }
+        
+        // Vibrar teléfono si el dispositivo lo soporta
+        if (navigator.vibrate) {
+            try {
+                navigator.vibrate([300, 150, 300, 150, 600]);
+            } catch (e) {}
         }
     }
 
