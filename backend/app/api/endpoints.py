@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from ..core.config import get_settings
@@ -9,6 +9,7 @@ from ..services.voice_service import voice_service
 from ..services.voice_auth_service import voice_auth_service
 from ..services.contacts_service import contacts_service
 from ..services.telephony_service import telephony_service
+from ..services.proactive_service import connection_manager, proactive_service
 
 router = APIRouter()
 settings = get_settings()
@@ -70,13 +71,34 @@ async def chat_with_yui(request: ChatRequest):
     reply = await gemini_service.generate_reply(
         message=request.message,
         chat_history=request.history,
-        persist_session="api_session"
+        persist_session="api_session",
+        client_time=request.client_time,
+        client_timezone=request.client_timezone
     )
     return ChatResponse(
         reply=reply,
         assistant=settings.ASSISTANT_NAME,
         status="success"
     )
+
+# =============================================================================
+# CANAL WEBSOCKET PROACTIVO EN VIVO (/ws/live)
+# =============================================================================
+
+@router.websocket("/ws/live")
+async def websocket_live_channel(websocket: WebSocket):
+    """Canal en vivo para recibir avisos proactivos y recordatorios autónomos de Yui."""
+    await connection_manager.connect(websocket)
+    try:
+        while True:
+            # Mantener conexión viva con pings/pongs o mensajes de cliente
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        connection_manager.disconnect(websocket)
+    except Exception:
+        connection_manager.disconnect(websocket)
 
 # =============================================================================
 # ENDPOINTS TELEFÓNICOS Y CONTACTOS MÓVILES (FASE 5)

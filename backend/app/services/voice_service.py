@@ -86,7 +86,13 @@ class VoiceService:
             except Exception:
                 await asyncio.sleep(0.2)
                 continue
-        return b""
+    async def synthesize_to_base64(self, text: str) -> Optional[str]:
+        """Sintetiza texto a audio MP3 codificado en base64 para streaming directo por WebSocket."""
+        import base64
+        audio_bytes = await self.synthesize_to_bytes(text)
+        if audio_bytes:
+            return base64.b64encode(audio_bytes).decode('utf-8')
+        return None
 
     async def synthesize_to_file(self, text: str, output_path: str) -> bool:
         """Sintetiza texto y lo guarda en un archivo MP3."""

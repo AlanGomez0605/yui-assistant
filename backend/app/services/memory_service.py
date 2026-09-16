@@ -102,6 +102,27 @@ class MemoryService:
             pass
         return True
 
+    async def mark_reminder_notified(self, reminder_id: Any) -> bool:
+        """Marca un recordatorio como notificado por el motor proactivo de Yui."""
+        await self.ensure_db()
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            from bson import ObjectId
+            try:
+                await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_notified": True, "is_completed": True}})
+            except Exception:
+                await coll.update_one({"id": reminder_id}, {"$set": {"is_notified": True, "is_completed": True}})
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = update(Reminder).where(Reminder.id == int(reminder_id)).values(is_completed=True)
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return True
+
+
     # =========================================================================
     # RECUERDOS Y HECHOS CON CONTEXTO Y MOTIVOS EMOCIONALES
     # =========================================================================

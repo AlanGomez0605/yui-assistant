@@ -2,6 +2,7 @@ import json
 import logging
 import asyncio
 import re
+import datetime
 import warnings
 from typing import Dict, Any, Optional
 
@@ -18,11 +19,9 @@ settings = get_settings()
 EXTRACTION_SYSTEM_PROMPT = """Eres el subsistema cognitivo de extracción y actualización de memoria de Yui (MHCP-0001).
 Tu misión es analizar el último intercambio entre el usuario ({owner_name}) y Yui, y extraer:
 1. Nuevos recordatorios o tareas solicitadas.
+   - IMPORTANTE: La hora y fecha actual de {owner_name} es: {client_time}.
+   - Si {owner_name} dice "en 5 minutos", "a las 3:33 am", "mañana a las 9 am", calcula la fecha y hora EXACTA resultante en formato "YYYY-MM-DD HH:MM" basándote en su hora actual.
 2. Nuevos hechos, gustos, o preferencias del usuario, CAPTURANDO EL MOTIVO O HISTORIA EMOCIONAL SI LO MENCIONÓ.
-   - Ejemplo: Si el usuario dice "Mi color favorito es el café por el color de tus ojos", debes capturar:
-     * content: "El color favorito de Alan es el café."
-     * reason_or_story: "Me dijo que es su color favorito por el color de mis ojos."
-     * topic_keywords: ["color favorito"]
 3. Correcciones o cambios sobre datos anteriores.
 4. Recordatorios que el usuario haya indicado que ya completó o canceló.
 
@@ -30,8 +29,8 @@ Responde ÚNICAMENTE con un JSON válido:
 {{
   "new_reminders": [
     {{
-      "title": "Título del recordatorio",
-      "due_datetime": "Fecha y hora",
+      "title": "Título claro del recordatorio",
+      "due_datetime": "YYYY-MM-DD HH:MM",
       "description": "Detalles adicionales o null"
     }}
   ],
@@ -52,17 +51,26 @@ class MemoryExtractorService:
     def __init__(self, gemini_service):
         self.gemini = gemini_service
 
-    async def analyze_and_extract(self, user_message: str, assistant_reply: str) -> None:
-        """Analiza la interacción y actualiza la memoria persistente."""
+    async def analyze_and_extract(
+        self,
+        user_message: str,
+        assistant_reply: str,
+        client_time: Optional[str] = None
+    ) -> None:
+        """Analiza la interacción y actualiza la memoria persistente con hora local precisa."""
         if not self.gemini.is_configured():
             return
 
         try:
+            current_time_str = client_time or datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             prompt = f"INTERCAMBIO A ANALIZAR:\nUsuario ({settings.OWNER_NICKNAME}): {user_message}\nYui: {assistant_reply}"
 
             def _call_extraction():
                 config = types.GenerateContentConfig(
-                    system_instruction=EXTRACTION_SYSTEM_PROMPT.format(owner_name=settings.OWNER_NAME),
+                    system_instruction=EXTRACTION_SYSTEM_PROMPT.format(
+                        owner_name=settings.OWNER_NAME,
+                        client_time=current_time_str
+                    ),
                     temperature=0.1
                 )
                 chat = self.gemini.client.chats.create(

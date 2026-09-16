@@ -1,5 +1,5 @@
 // ==============================================================================
-// PROYECTO YUI - CONTROLADOR PRINCIPAL DE INTERFAZ & VOZ (PWA)
+// PROYECTO YUI - CONTROLADOR PRINCIPAL DE INTERFAZ, VOZ & WEBSOCKET PROACTIVO
 // ==============================================================================
 
 class YuiApp {
@@ -8,10 +8,14 @@ class YuiApp {
         this.isSpeaking = false;
         this.recognition = null;
         this.audioPlayer = new Audio();
+        this.ws = null;
+        this.wsReconnectTimeout = null;
 
         this.initDOMElements();
         this.initSpeechRecognition();
         this.initServiceWorker();
+        this.initNotifications();
+        this.initWebSocketLive();
         this.bindEvents();
         this.loadSystemStatus();
         this.sendInitialGreeting();
@@ -55,6 +59,130 @@ class YuiApp {
                 );
             });
         }
+    }
+
+    initNotifications() {
+        if ("Notification" in window && Notification.permission === "default") {
+            // Solicitar permiso de notificación del sistema
+            document.addEventListener('click', () => {
+                if (Notification.permission === "default") {
+                    Notification.requestPermission();
+                }
+            }, { once: true });
+        }
+    }
+
+    // ==========================================================================
+    // CANAL WEBSOCKET PROACTIVO EN VIVO (/ws/live)
+    // ==========================================================================
+
+    initWebSocketLive() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/ws/live`;
+
+        try {
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                console.log('🌸 [YUI WS] Conexión proactiva en vivo establecida.');
+                if (this.statusBadge) {
+                    this.statusBadge.classList.add('online');
+                    this.statusBadge.innerText = 'ONLINE • PROACTIVA';
+                }
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'proactive_reminder') {
+                        this.handleProactiveReminder(data);
+                    }
+                } catch (e) {
+                    // Texto plano o keep-alive
+                }
+            };
+
+            this.ws.onclose = () => {
+                console.warn('🌸 [YUI WS] Conexión perdida. Reconectando en 4s...');
+                clearTimeout(this.wsReconnectTimeout);
+                this.wsReconnectTimeout = setTimeout(() => this.initWebSocketLive(), 4000);
+            };
+
+            this.ws.onerror = (err) => {
+                console.warn('🌸 [YUI WS] Error de conexión:', err);
+            };
+
+        } catch (e) {
+            console.warn('WebSocket no soportado o error:', e);
+        }
+    }
+
+    handleProactiveReminder(data) {
+        console.log('⚡ [RECORDATORIO AUTÓNOMO RECIBIDO]:', data);
+        
+        // 1. Sonido de campana SAO
+        window.saoAudio?.playMessageChime();
+
+        // 2. Insertar mensaje en chat
+        this.appendMessage('assistant', data.message);
+        this.loadSystemStatus();
+
+        // 3. Reproducir voz de Yui
+        if (data.audio_base64) {
+            this.playBase64Audio(data.audio_base64);
+        } else {
+            this.speakReply(data.message);
+        }
+
+        // 4. Mostrar Notificación Push del Sistema (incluso en segundo plano)
+        if ("Notification" in window && Notification.permission === "granted") {
+            try {
+                new Notification("🌸 Yui (MHCP-0001)", {
+                    body: `📌 ${data.title}: ${data.message.replace(/\*\*/g, '')}`,
+                    icon: "/assets/icon-192.png",
+                    badge: "/assets/icon-192.png",
+                    requireInteraction: true
+                });
+            } catch (e) {
+                console.warn('Error mostrando notificación:', e);
+            }
+        }
+    }
+
+    playBase64Audio(base64Data) {
+        this.setAvatarState('speaking');
+        try {
+            const audioSrc = `data:audio/mp3;base64,${base64Data}`;
+            this.audioPlayer.src = audioSrc;
+            this.audioPlayer.onended = () => {
+                this.setAvatarState('idle');
+            };
+            this.audioPlayer.play().catch(e => {
+                console.warn('Autoplay bloqueado:', e);
+                this.setAvatarState('idle');
+            });
+        } catch (e) {
+            this.setAvatarState('idle');
+        }
+    }
+
+    // ==========================================================================
+    // DETECCIÓN DE HORA Y ZONA HORARIA LOCAL DEL CLIENTE
+    // ==========================================================================
+
+    getClientTimePayload() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+
+        return {
+            client_time: `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`,
+            client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Mexico_City'
+        };
     }
 
     bindEvents() {
@@ -111,7 +239,7 @@ class YuiApp {
     }
 
     // ==========================================================================
-    // ENVÍO Y RECEPCIÓN DE MENSAJES
+    // ENVÍO Y RECEPCIÓN DE MENSAJES CON HORA LOCAL
     // ==========================================================================
 
     async handleSendMessage() {
@@ -125,13 +253,18 @@ class YuiApp {
         // Estado visual de pensamiento
         this.setAvatarState('thinking');
 
+        // Obtener hora local exacta del cliente
+        const timeData = this.getClientTimePayload();
+
         try {
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: text,
-                    history: this.history
+                    history: this.history,
+                    client_time: timeData.client_time,
+                    client_timezone: timeData.client_timezone
                 })
             });
 
