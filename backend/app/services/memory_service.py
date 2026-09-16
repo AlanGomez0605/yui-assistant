@@ -60,20 +60,35 @@ class MemoryService:
             return True
 
     # =========================================================================
-    # RECUERDOS PERMANENTES (HECHOS SOBRE ALAN)
+    # RECUERDOS PERMANENTES (CON RESOLUCIÓN DE CONFLICTOS / ACTUALIZACIÓN)
     # =========================================================================
-    async def add_memory(self, content: str, category: str = "fact", importance: int = 3) -> Memory:
+    async def save_or_update_memory(self, content: str, category: str = "fact", importance: int = 3, topic_keywords: Optional[List[str]] = None) -> Memory:
+        """Guarda un nuevo recuerdo y reemplaza recuerdos anteriores contradictorios del mismo tema."""
         await self.ensure_db()
         async with AsyncSessionLocal() as session:
-            # Evitar duplicados exactos
-            stmt = select(Memory).where(Memory.content == content.strip())
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-            if existing:
-                existing.last_recalled_at = datetime.datetime.utcnow()
-                await session.commit()
-                return existing
+            # 1. Si se indican palabras clave o si es una preferencia, buscar y actualizar recuerdos obsoletos
+            all_stmt = select(Memory).where(Memory.category == category)
+            result = await session.execute(all_stmt)
+            existing_memories = result.scalars().all()
 
+            # Detectar si hay un recuerdo previo sobre el mismo tema (ej. 'color favorito')
+            keywords_to_check = topic_keywords or []
+            if not keywords_to_check and "color favorito" in content.lower():
+                keywords_to_check = ["color favorito"]
+            elif not keywords_to_check and "viaje" in content.lower():
+                keywords_to_check = ["viaje"]
+
+            if keywords_to_check:
+                for old_mem in existing_memories:
+                    if any(kw in old_mem.content.lower() for kw in keywords_to_check):
+                        old_mem.content = content.strip()
+                        old_mem.importance = importance
+                        old_mem.last_recalled_at = datetime.datetime.utcnow()
+                        await session.commit()
+                        await session.refresh(old_mem)
+                        return old_mem
+
+            # 2. Si no existía uno previo del mismo tema, crear uno nuevo
             memory = Memory(
                 content=content.strip(),
                 category=category.strip(),
@@ -84,6 +99,21 @@ class MemoryService:
             await session.commit()
             await session.refresh(memory)
             return memory
+
+    async def add_memory(self, content: str, category: str = "fact", importance: int = 3) -> Memory:
+        return await self.save_or_update_memory(content=content, category=category, importance=importance)
+
+    async def delete_memory_by_topic(self, topic_keyword: str) -> None:
+        """Elimina recuerdos obsoletos que coincidan con un tema."""
+        await self.ensure_db()
+        async with AsyncSessionLocal() as session:
+            stmt = select(Memory)
+            result = await session.execute(stmt)
+            all_mems = result.scalars().all()
+            for m in all_mems:
+                if topic_keyword.lower() in m.content.lower():
+                    await session.delete(m)
+            await session.commit()
 
     async def get_all_memories(self, limit: int = 30) -> List[Dict[str, Any]]:
         await self.ensure_db()
@@ -123,23 +153,21 @@ class MemoryService:
             ).order_by(desc(ConversationMessage.id)).limit(limit)
             result = await session.execute(stmt)
             messages = result.scalars().all()
-            # Invertir para orden cronológico
             return [
                 {"role": m.role, "content": m.content}
                 for m in reversed(messages)
             ]
 
     # =========================================================================
-    # INYECCIÓN DE CONTEXTO ACTIVO PARA EL PROMPT DE YUI
+    # INYECCIÓN DE CONTEXTO ACTIVO
     # =========================================================================
     async def build_dynamic_context(self) -> str:
-        """Construye un bloque de memoria contextual que se inyecta directamente al razonamiento de Yui."""
+        """Construye el bloque de memoria viva inyectado al prompt de Yui."""
         reminders = await self.get_active_reminders()
         memories = await self.get_all_memories(limit=20)
 
         context_parts = []
 
-        # Recordatorios activos
         if reminders:
             context_parts.append("📌 RECORDATORIOS Y PENDIENTES ACTIVOS DE ALAN:")
             for r in reminders:
@@ -148,13 +176,11 @@ class MemoryService:
         else:
             context_parts.append("📌 RECORDATORIOS: Actualmente no hay recordatorios pendientes.")
 
-        # Recuerdos aprendidos
         if memories:
-            context_parts.append("\n🧠 RECUERDOS Y HECHOS APRENDIDOS SOBRE ALAN:")
+            context_parts.append("\n🧠 RECUERDOS Y HECHOS CONFIRMADOS SOBRE ALAN (Respeta estrictamente estos datos):")
             for m in memories:
                 context_parts.append(f"  • {m['content']}")
 
         return "\n".join(context_parts)
 
-# Instancia singleton del servicio de memoria
 memory_service = MemoryService()

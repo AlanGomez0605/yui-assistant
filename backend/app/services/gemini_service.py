@@ -4,7 +4,6 @@ import warnings
 import asyncio
 from typing import List, Dict, Optional, AsyncGenerator
 
-# Silenciar advertencias de Google GenAI
 warnings.filterwarnings("ignore")
 logging.getLogger("google").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)
@@ -30,9 +29,9 @@ class GeminiYuiService:
             owner_nickname=settings.OWNER_NICKNAME
         )
         self.client: Optional[genai.Client] = None
+        self._pending_tasks = set()
         self._init_client()
 
-        # Import diferido para evitar dependencias circulares
         from .extractor_service import MemoryExtractorService
         self.extractor = MemoryExtractorService(self)
 
@@ -109,7 +108,7 @@ class GeminiYuiService:
 
                 stream_success = True
                 break
-            except Exception as e:
+            except Exception:
                 continue
 
         if not stream_success:
@@ -117,17 +116,26 @@ class GeminiYuiService:
             full_reply_parts.append(err_msg)
             yield err_msg
 
-        # Post-procesamiento asíncrono: Guardar mensaje en base de datos y extraer recuerdos/tareas
+        # Post-procesamiento asíncrono controlado
         full_reply = "".join(full_reply_parts)
         if persist_session:
-            asyncio.create_task(self._post_process(message, full_reply, persist_session))
+            task = asyncio.create_task(self._post_process(message, full_reply, persist_session))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
+
+    async def wait_for_pending_tasks(self, timeout: float = 3.0):
+        """Espera a que finalicen las extracciones de memoria pendientes antes de cerrar la sesión."""
+        if self._pending_tasks:
+            tasks = list(self._pending_tasks)
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=timeout)
+            except Exception:
+                pass
 
     async def _post_process(self, user_message: str, assistant_reply: str, session_id: str):
         try:
-            # 1. Guardar mensajes en la base de datos
             await memory_service.save_message("user", user_message, session_id=session_id)
             await memory_service.save_message("assistant", assistant_reply, session_id=session_id)
-            # 2. Extraer automáticamente recordatorios y nuevos recuerdos
             await self.extractor.analyze_and_extract(user_message, assistant_reply)
         except Exception as e:
             logging.error(f"Error en post-proceso de memoria: {e}")
