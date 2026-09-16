@@ -233,6 +233,18 @@ class MemoryService:
             for c in recent_chats:
                 context_parts.append(f"  [{c.get('timestamp', '')}] Alan: \"{c.get('user_message', '')}\" | Yui: \"{c.get('assistant_reply', '')[:120]}...\"")
 
+        # Agenda de Contactos sincronizada
+        try:
+            from .contacts_service import contacts_service
+            contacts = await contacts_service.get_all_contacts(limit=50)
+            if contacts:
+                context_parts.append("\n👥 AGENDA TELEFÓNICA DE ALAN (Contactos sincronizados):")
+                for ct in contacts:
+                    rel = f" ({ct.get('relationship')})" if ct.get('relationship') else ""
+                    context_parts.append(f"  • {ct.get('name')}: {ct.get('phone')}{rel}")
+        except Exception as e:
+            pass
+
         return "\n".join(context_parts)
 
 memory_service = MemoryService()

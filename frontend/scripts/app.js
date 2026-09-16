@@ -317,15 +317,60 @@ class YuiApp {
         }
     }
 
-        // Detectar y ejecutar acciones de control de teléfono en Android Companion
-        if (window.AndroidYuiBridge && role === 'assistant') {
+        let actionHtml = '';
+
+        // Detectar y ejecutar acciones de control de teléfono en Android Companion o Web
+        if (role === 'assistant') {
+            const waMatch = text.match(/\[\[SEND_WHATSAPP:(.+?):(.*?)\]\]/i);
+            if (waMatch) {
+                const target = waMatch[1].trim();
+                const msg = waMatch[2].trim();
+                let phone = target.replace(/\D/g, '');
+                
+                // Si el target no es número, buscar en lista de contactos cacheados
+                if (!phone && this.cachedContacts) {
+                    const found = this.cachedContacts.find(c => c.name.toLowerCase().includes(target.toLowerCase()));
+                    if (found) phone = found.phone.replace(/\D/g, '');
+                }
+
+                const waUrl = phone 
+                    ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`
+                    : `https://web.whatsapp.com/`;
+
+                actionHtml += `
+                    <div style="margin-top: 10px;">
+                        <a href="${waUrl}" target="_blank" class="sao-action-btn" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: rgba(37, 211, 102, 0.2); border: 1px solid #25d366; border-radius: 8px; color: #25d366; text-decoration: none; font-weight: bold; font-size: 0.85rem; box-shadow: 0 0 10px rgba(37, 211, 102, 0.3);">
+                            💬 Abrir WhatsApp (${target})
+                        </a>
+                    </div>
+                `;
+
+                if (window.AndroidYuiBridge) {
+                    window.AndroidYuiBridge.sendWhatsApp(phone || target, msg);
+                } else {
+                    try { window.open(waUrl, '_blank'); } catch (e) {}
+                }
+            }
+
             const appMatch = text.match(/\[\[OPEN_APP:(.+?)\]\]/i);
             if (appMatch) {
-                window.AndroidYuiBridge.openApplication(appMatch[1].trim());
+                const appName = appMatch[1].trim().toLowerCase();
+                if (window.AndroidYuiBridge) {
+                    window.AndroidYuiBridge.openApplication(appName);
+                } else if (appName === 'whatsapp') {
+                    actionHtml += `
+                        <div style="margin-top: 10px;">
+                            <a href="https://web.whatsapp.com/" target="_blank" class="sao-action-btn" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: rgba(37, 211, 102, 0.2); border: 1px solid #25d366; border-radius: 8px; color: #25d366; text-decoration: none; font-weight: bold; font-size: 0.85rem;">
+                                🟢 Ir a WhatsApp Web
+                            </a>
+                        </div>
+                    `;
+                    try { window.open('https://web.whatsapp.com/', '_blank'); } catch (e) {}
+                }
             }
 
             const alarmMatch = text.match(/\[\[SET_ALARM:(\d+):(\d+):?(.*?)\]\]/i);
-            if (alarmMatch) {
+            if (alarmMatch && window.AndroidYuiBridge) {
                 window.AndroidYuiBridge.setSystemAlarm(
                     parseInt(alarmMatch[1]),
                     parseInt(alarmMatch[2]),
@@ -334,25 +379,13 @@ class YuiApp {
             }
 
             const calMatch = text.match(/\[\[CALENDAR_EVENT:(.+?):(\d+):(\d+):?(.*?)\]\]/i);
-            if (calMatch) {
+            if (calMatch && window.AndroidYuiBridge) {
                 window.AndroidYuiBridge.createCalendarEvent(
                     calMatch[1].trim(),
                     calMatch[4]?.trim() || "Recordatorio de Yui",
                     parseInt(calMatch[2]),
                     parseInt(calMatch[3])
                 );
-            }
-
-            const waMatch = text.match(/\[\[SEND_WHATSAPP:(.+?):(.*?)\]\]/i);
-            if (waMatch) {
-                window.AndroidYuiBridge.sendWhatsApp(waMatch[1].trim(), waMatch[2].trim());
-            }
-        } else if (role === 'assistant') {
-            const waMatch = text.match(/\[\[SEND_WHATSAPP:(.+?):(.*?)\]\]/i);
-            if (waMatch) {
-                const phone = waMatch[1].replace(/\D/g, '');
-                const msg = encodeURIComponent(waMatch[2].trim());
-                window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${msg}`, '_blank');
             }
         }
 
@@ -366,6 +399,7 @@ class YuiApp {
             <div class="sao-msg-avatar">${avatarIcon}</div>
             <div class="sao-msg-bubble">
                 <div class="sao-msg-text">${formattedText}</div>
+                ${actionHtml}
                 <span class="sao-msg-time">${timeStr}</span>
             </div>
         `;
