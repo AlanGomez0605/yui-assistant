@@ -1,12 +1,14 @@
 package com.yui.assistant
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -20,7 +22,6 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -94,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         settings.cacheMode = WebSettings.LOAD_DEFAULT
 
         webView.webViewClient = WebViewClient()
+        webView.addJavascriptInterface(YuiAndroidBridge(this), "AndroidYuiBridge")
     }
 
     private fun loadSavedUrl() {
@@ -106,11 +108,17 @@ class MainActivity : AppCompatActivity() {
         val permissions = mutableListOf(
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.RECORD_AUDIO
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_CALENDAR,
+            Manifest.permission.WRITE_CALENDAR
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissions.add(Manifest.permission.ANSWER_PHONE_CALLS)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         val needed = permissions.filter {
@@ -147,15 +155,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncDeviceContacts() {
-        tvStatus.text = "Sincronizando contactos con MongoDB Atlas..."
+        tvStatus.text = "Sincronizando contactos..."
         CoroutineScope(Dispatchers.Main).launch {
             val success = ContactsSyncManager.syncContactsToCloud(this@MainActivity)
             if (success) {
-                tvStatus.text = "✅ Contactos sincronizados con éxito en la Nube."
-                Toast.makeText(this@MainActivity, "Contactos guardados en MongoDB Atlas", Toast.LENGTH_LONG).show()
+                tvStatus.text = "✅ Contactos sincronizados en MongoDB Atlas."
+                Toast.makeText(this@MainActivity, "Contactos guardados en la Nube", Toast.LENGTH_SHORT).show()
             } else {
-                tvStatus.text = "❌ Error al sincronizar contactos. Revisa la URL y conexión."
+                tvStatus.text = "❌ Error al sincronizar. Revisa conexión."
             }
+        }
+    }
+
+    inner class YuiAndroidBridge(private val context: Context) {
+
+        @JavascriptInterface
+        fun createCalendarEvent(title: String, description: String, startMillis: Long, endMillis: Long): Boolean {
+            return CalendarSyncManager.createCalendarEvent(context, title, description, startMillis, endMillis)
+        }
+
+        @JavascriptInterface
+        fun setSystemAlarm(hour: Int, minute: Int, message: String): Boolean {
+            return DeviceControlManager.setAlarm(context, hour, minute, message)
+        }
+
+        @JavascriptInterface
+        fun openApplication(appName: String): Boolean {
+            return DeviceControlManager.openApp(context, appName)
+        }
+
+        @JavascriptInterface
+        fun isNativeCompanion(): Boolean {
+            return true
         }
     }
 }

@@ -317,15 +317,38 @@ class YuiApp {
         }
     }
 
-    appendMessage(role, text) {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `sao-msg ${role}`;
+        // Detectar y ejecutar acciones de control de teléfono en Android Companion
+        if (window.AndroidYuiBridge && role === 'assistant') {
+            const appMatch = text.match(/\[\[OPEN_APP:(.+?)\]\]/i);
+            if (appMatch) {
+                window.AndroidYuiBridge.openApplication(appMatch[1].trim());
+            }
 
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const avatarIcon = role === 'user' ? '👤' : '🌸';
+            const alarmMatch = text.match(/\[\[SET_ALARM:(\d+):(\d+):?(.*?)\]\]/i);
+            if (alarmMatch) {
+                window.AndroidYuiBridge.setSystemAlarm(
+                    parseInt(alarmMatch[1]),
+                    parseInt(alarmMatch[2]),
+                    alarmMatch[3]?.trim() || "Alarma de Yui"
+                );
+            }
+
+            const calMatch = text.match(/\[\[CALENDAR_EVENT:(.+?):(\d+):(\d+):?(.*?)\]\]/i);
+            if (calMatch) {
+                window.AndroidYuiBridge.createCalendarEvent(
+                    calMatch[1].trim(),
+                    calMatch[4]?.trim() || "Recordatorio de Yui",
+                    parseInt(calMatch[2]),
+                    parseInt(calMatch[3])
+                );
+            }
+        }
+
+        // Limpiar etiquetas de comando del texto visible
+        const cleanText = text.replace(/\[\[.*?\]\]/g, '').trim();
 
         // Formatear negritas
-        const formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        const formattedText = cleanText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
         msgDiv.innerHTML = `
             <div class="sao-msg-avatar">${avatarIcon}</div>
