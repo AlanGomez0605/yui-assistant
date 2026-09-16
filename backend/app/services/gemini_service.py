@@ -8,6 +8,7 @@ warnings.filterwarnings("ignore")
 logging.getLogger("google").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
+from google import genai
 from google.genai import types
 from ..core.config import get_settings
 from ..core.prompts import get_yui_system_prompt
