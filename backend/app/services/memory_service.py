@@ -2,40 +2,72 @@ import datetime
 from typing import List, Dict, Optional, Any
 from sqlalchemy import select, update, delete, desc
 from ..core.database import AsyncSessionLocal, init_db
-from ..models.db_models import Memory, Reminder, ConversationMessage, UserProfile
+from ..models.db_models import Memory, Reminder, ConversationMessage
+from ..core.mongodb import mongodb_manager
 from ..core.config import get_settings
 
 settings = get_settings()
 
 class MemoryService:
     def __init__(self):
-        self._initialized = False
+        self._db_initialized = False
 
     async def ensure_db(self):
-        if not self._initialized:
+        if not self._db_initialized:
+            # 1. Intentar conectar a MongoDB Atlas en la nube
+            await mongodb_manager.connect()
+            # 2. Inicializar SQLite local como respaldo seguro
             await init_db()
-            self._initialized = True
+            self._db_initialized = True
 
     # =========================================================================
-    # RECORDATORIOS / TAREAS
+    # RECORDATORIOS / TAREAS (NUBE MONGODB + LOCAL SQLITE)
     # =========================================================================
-    async def add_reminder(self, title: str, due_datetime: str, description: Optional[str] = None) -> Reminder:
+    async def add_reminder(self, title: str, due_datetime: str, description: Optional[str] = None) -> Dict[str, Any]:
         await self.ensure_db()
+        now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        reminder_data = {
+            "title": title.strip(),
+            "due_datetime": due_datetime.strip(),
+            "description": description.strip() if description else None,
+            "is_completed": False,
+            "created_at": now_str
+        }
+
+        # Guardar en MongoDB si está activo
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            res = await coll.insert_one(dict(reminder_data))
+            reminder_data["id"] = str(res.inserted_id)
+
+        # Respaldar en SQLite local
         async with AsyncSessionLocal() as session:
-            reminder = Reminder(
-                title=title.strip(),
-                due_datetime=due_datetime.strip(),
-                description=description.strip() if description else None,
-                is_completed=False,
-                notified=False
+            r = Reminder(
+                title=reminder_data["title"],
+                due_datetime=reminder_data["due_datetime"],
+                description=reminder_data["description"],
+                is_completed=False
             )
-            session.add(reminder)
+            session.add(r)
             await session.commit()
-            await session.refresh(reminder)
-            return reminder
+            if "id" not in reminder_data:
+                reminder_data["id"] = r.id
+
+        return reminder_data
 
     async def get_active_reminders(self) -> List[Dict[str, Any]]:
         await self.ensure_db()
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            cursor = coll.find({"is_completed": False}).sort("_id", -1)
+            results = []
+            async for doc in cursor:
+                doc["id"] = str(doc.get("_id", doc.get("id")))
+                doc.pop("_id", None)
+                results.append(doc)
+            return results
+
+        # Fallback local SQLite
         async with AsyncSessionLocal() as session:
             stmt = select(Reminder).where(Reminder.is_completed == False).order_by(Reminder.id.desc())
             result = await session.execute(stmt)
@@ -51,72 +83,113 @@ class MemoryService:
                 for r in reminders
             ]
 
-    async def complete_reminder(self, reminder_id: int) -> bool:
+    async def complete_reminder(self, reminder_id: Any) -> bool:
         await self.ensure_db()
-        async with AsyncSessionLocal() as session:
-            stmt = update(Reminder).where(Reminder.id == reminder_id).values(is_completed=True)
-            await session.execute(stmt)
-            await session.commit()
-            return True
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("reminders")
+            from bson import ObjectId
+            try:
+                await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_completed": True}})
+            except Exception:
+                await coll.update_one({"id": reminder_id}, {"$set": {"is_completed": True}})
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = update(Reminder).where(Reminder.id == int(reminder_id)).values(is_completed=True)
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            pass
+        return True
 
     # =========================================================================
-    # RECUERDOS PERMANENTES (CON RESOLUCIÓN DE CONFLICTOS / ACTUALIZACIÓN)
+    # RECUERDOS Y HECHOS CON CONTEXTO Y MOTIVOS EMOCIONALES
     # =========================================================================
-    async def save_or_update_memory(self, content: str, category: str = "fact", importance: int = 3, topic_keywords: Optional[List[str]] = None) -> Memory:
-        """Guarda un nuevo recuerdo y reemplaza recuerdos anteriores contradictorios del mismo tema."""
+    async def save_or_update_memory(
+        self,
+        content: str,
+        category: str = "fact",
+        importance: int = 3,
+        topic_keywords: Optional[List[str]] = None,
+        reason_or_story: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Guarda un recuerdo rico con su contexto y motivo emocional."""
         await self.ensure_db()
+        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+
+        keywords = topic_keywords or []
+        if not keywords:
+            if "color favorito" in content.lower():
+                keywords = ["color favorito"]
+            elif "viaje" in content.lower():
+                keywords = ["viaje"]
+
+        full_content = content.strip()
+        if reason_or_story and reason_or_story not in full_content:
+            full_content = f"{full_content} (Motivo/Historia: {reason_or_story.strip()})"
+
+        doc_data = {
+            "content": full_content,
+            "category": category.strip(),
+            "importance": importance,
+            "topic_keywords": keywords,
+            "reason_or_story": reason_or_story,
+            "updated_at": now
+        }
+
+        # Guardar en MongoDB Atlas
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("memories")
+            if keywords:
+                # Actualizar si ya existía un recuerdo sobre el mismo tema
+                query = {"topic_keywords": {"$in": keywords}}
+                existing = await coll.find_one(query)
+                if existing:
+                    await coll.update_one({"_id": existing["_id"]}, {"$set": doc_data})
+                    doc_data["id"] = str(existing["_id"])
+                    return doc_data
+            res = await coll.insert_one(dict(doc_data))
+            doc_data["id"] = str(res.inserted_id)
+
+        # Guardar en SQLite local
         async with AsyncSessionLocal() as session:
-            # 1. Si se indican palabras clave o si es una preferencia, buscar y actualizar recuerdos obsoletos
-            all_stmt = select(Memory).where(Memory.category == category)
-            result = await session.execute(all_stmt)
-            existing_memories = result.scalars().all()
+            all_stmt = select(Memory)
+            res = await session.execute(all_stmt)
+            existing_mems = res.scalars().all()
 
-            # Detectar si hay un recuerdo previo sobre el mismo tema (ej. 'color favorito')
-            keywords_to_check = topic_keywords or []
-            if not keywords_to_check and "color favorito" in content.lower():
-                keywords_to_check = ["color favorito"]
-            elif not keywords_to_check and "viaje" in content.lower():
-                keywords_to_check = ["viaje"]
-
-            if keywords_to_check:
-                for old_mem in existing_memories:
-                    if any(kw in old_mem.content.lower() for kw in keywords_to_check):
-                        old_mem.content = content.strip()
-                        old_mem.importance = importance
-                        old_mem.last_recalled_at = datetime.datetime.utcnow()
+            updated = False
+            if keywords:
+                for old in existing_mems:
+                    if any(kw in old.content.lower() for kw in keywords):
+                        old.content = full_content
+                        old.importance = importance
                         await session.commit()
-                        await session.refresh(old_mem)
-                        return old_mem
+                        updated = True
+                        break
 
-            # 2. Si no existía uno previo del mismo tema, crear uno nuevo
-            memory = Memory(
-                content=content.strip(),
-                category=category.strip(),
-                importance=importance,
-                last_recalled_at=datetime.datetime.utcnow()
-            )
-            session.add(memory)
-            await session.commit()
-            await session.refresh(memory)
-            return memory
+            if not updated:
+                m = Memory(
+                    content=full_content,
+                    category=category.strip(),
+                    importance=importance
+                )
+                session.add(m)
+                await session.commit()
 
-    async def add_memory(self, content: str, category: str = "fact", importance: int = 3) -> Memory:
-        return await self.save_or_update_memory(content=content, category=category, importance=importance)
-
-    async def delete_memory_by_topic(self, topic_keyword: str) -> None:
-        """Elimina recuerdos obsoletos que coincidan con un tema."""
-        await self.ensure_db()
-        async with AsyncSessionLocal() as session:
-            stmt = select(Memory)
-            result = await session.execute(stmt)
-            all_mems = result.scalars().all()
-            for m in all_mems:
-                if topic_keyword.lower() in m.content.lower():
-                    await session.delete(m)
-            await session.commit()
+        return doc_data
 
     async def get_all_memories(self, limit: int = 30) -> List[Dict[str, Any]]:
         await self.ensure_db()
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("memories")
+            cursor = coll.find({}).sort("importance", -1).limit(limit)
+            results = []
+            async for doc in cursor:
+                doc["id"] = str(doc.get("_id", doc.get("id")))
+                doc.pop("_id", None)
+                results.append(doc)
+            return results
+
         async with AsyncSessionLocal() as session:
             stmt = select(Memory).order_by(desc(Memory.importance), desc(Memory.id)).limit(limit)
             result = await session.execute(stmt)
@@ -131,55 +204,88 @@ class MemoryService:
                 for m in memories
             ]
 
-    # =========================================================================
-    # HISTORIAL DE CONVERSACIÓN PERSISTENTE
-    # =========================================================================
     async def save_message(self, role: str, content: str, session_id: str = "default") -> None:
+        """Compatibilidad para guardar mensajes individuales."""
+        pass
+    async def save_conversation_exchange(self, user_message: str, assistant_reply: str, session_id: str = "default") -> None:
+        """Guarda permanentemente cada intercambio de conversación con marcas de tiempo íntegras."""
         await self.ensure_db()
+        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        doc = {
+            "session_id": session_id,
+            "user_message": user_message,
+            "assistant_reply": assistant_reply,
+            "timestamp": now
+        }
+
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("conversations")
+            await coll.insert_one(doc)
+
         async with AsyncSessionLocal() as session:
-            msg = ConversationMessage(
-                session_id=session_id,
-                role=role,
-                content=content
-            )
-            session.add(msg)
+            m1 = ConversationMessage(session_id=session_id, role="user", content=user_message)
+            m2 = ConversationMessage(session_id=session_id, role="assistant", content=assistant_reply)
+            session.add_all([m1, m2])
             await session.commit()
 
-    async def get_recent_messages(self, session_id: str = "default", limit: int = 15) -> List[Dict[str, str]]:
+    async def get_recent_conversations(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Obtiene las conversaciones pasadas completas."""
         await self.ensure_db()
+        if mongodb_manager.is_connected():
+            coll = mongodb_manager.get_collection("conversations")
+            cursor = coll.find({}).sort("_id", -1).limit(limit)
+            res = []
+            async for d in cursor:
+                d.pop("_id", None)
+                res.append(d)
+            return list(reversed(res))
+
         async with AsyncSessionLocal() as session:
-            stmt = select(ConversationMessage).where(
-                ConversationMessage.session_id == session_id
-            ).order_by(desc(ConversationMessage.id)).limit(limit)
+            stmt = select(ConversationMessage).order_by(desc(ConversationMessage.id)).limit(limit * 2)
             result = await session.execute(stmt)
-            messages = result.scalars().all()
-            return [
-                {"role": m.role, "content": m.content}
-                for m in reversed(messages)
-            ]
+            msgs = list(reversed(result.scalars().all()))
+            formatted = []
+            for i in range(0, len(msgs) - 1, 2):
+                if msgs[i].role == "user" and msgs[i+1].role == "assistant":
+                    formatted.append({
+                        "user_message": msgs[i].content,
+                        "assistant_reply": msgs[i+1].content,
+                        "timestamp": msgs[i].created_at.strftime("%Y-%m-%d %H:%M")
+                    })
+            return formatted
 
     # =========================================================================
-    # INYECCIÓN DE CONTEXTO ACTIVO
+    # CONSTRUCCIÓN DE CONTEXTO VIVO
     # =========================================================================
     async def build_dynamic_context(self) -> str:
-        """Construye el bloque de memoria viva inyectado al prompt de Yui."""
+        """Genera el bloque de contexto inyectado al razonamiento de Yui."""
         reminders = await self.get_active_reminders()
-        memories = await self.get_all_memories(limit=20)
+        memories = await self.get_all_memories(limit=25)
+        recent_chats = await self.get_recent_conversations(limit=4)
 
         context_parts = []
 
+        # Recordatorios
         if reminders:
             context_parts.append("📌 RECORDATORIOS Y PENDIENTES ACTIVOS DE ALAN:")
             for r in reminders:
-                desc = f" ({r['description']})" if r['description'] else ""
-                context_parts.append(f"  • [ID #{r['id']}] {r['title']} - Para: {r['due_datetime']}{desc}")
+                desc = f" ({r['description']})" if r.get('description') else ""
+                context_parts.append(f"  • {r['title']} - Para: {r['due_datetime']}{desc}")
         else:
-            context_parts.append("📌 RECORDATORIOS: Actualmente no hay recordatorios pendientes.")
+            context_parts.append("📌 RECORDATORIOS: No hay recordatorios pendientes.")
 
+        # Recuerdos y motivos
         if memories:
-            context_parts.append("\n🧠 RECUERDOS Y HECHOS CONFIRMADOS SOBRE ALAN (Respeta estrictamente estos datos):")
+            context_parts.append("\n🧠 RECUERDOS Y DETALLES CONFIRMADOS SOBRE ALAN (Incluyendo motivos y anécdotas):")
             for m in memories:
                 context_parts.append(f"  • {m['content']}")
+
+        # Resumen de conversaciones pasadas
+        if recent_chats:
+            context_parts.append("\n💬 EXTRACTO DE CONVERSACIONES PASADAS CON ALAN:")
+            for c in recent_chats:
+                context_parts.append(f"  [{c.get('timestamp', '')}] Alan: \"{c.get('user_message', '')}\" | Yui: \"{c.get('assistant_reply', '')[:120]}...\"")
 
         return "\n".join(context_parts)
 

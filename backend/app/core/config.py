@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     OWNER_NICKNAME: str = "Alan"
     ASSISTANT_NAME: str = "Yui"
     
-    # Base de Datos
+    # Base de Datos (Nube NoSQL MongoDB & SQLite fallback)
+    MONGODB_URI: str = ""
+    MONGODB_DB_NAME: str = "yui_cloud_memory"
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/yui_memory.db"
     
     # Voz
