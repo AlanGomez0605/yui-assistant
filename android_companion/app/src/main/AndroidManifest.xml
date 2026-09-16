@@ -29,9 +29,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@android:drawable/ic_dialog_info"
         android:label="Yui SAO"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.YuiAssistant"
         android:usesCleartextTraffic="true">
@@ -52,7 +51,11 @@
             android:name=".FloatingOverlayService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Floating SAO HUD for Yui Assistant" />
+        </service>
 
         <!-- Receptor de Llamadas Entrantes (Manejador de 30-40s) -->
         <receiver

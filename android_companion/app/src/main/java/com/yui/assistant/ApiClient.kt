@@ -13,7 +13,7 @@ import java.net.URL
 object ApiClient {
     private const val PREFS_NAME = "yui_prefs"
     private const val KEY_BACKEND_URL = "backend_url"
-    private const val DEFAULT_URL = "https://yui-mhcp0001.onrender.com"
+    private const val DEFAULT_URL = "https://web-production-7eeaa.up.railway.app"
 
     fun getBackendUrl(context: Context): String {
         val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
