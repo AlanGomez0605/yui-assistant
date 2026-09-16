@@ -130,7 +130,6 @@ class ProactiveService:
                 continue
 
             # El recordatorio debe dispararse ÚNICAMENTE cuando la hora actual >= hora fijada
-            # pero no si fue hace más de 1 hora de antigüedad (a menos que acabe de iniciar)
             if now_utc_ts >= target_ts:
                 time_diff = now_utc_ts - target_ts
                 if time_diff <= 3600: # Disparar si ocurrió hace menos de 1 hora
@@ -148,23 +147,33 @@ class ProactiveService:
 
         print(f"\n⚡ [YUI AUTÓNOMA] Disparando recordatorio a la hora exacta: '{title}' para {owner_nick}!")
 
-        # Marcar de inmediato como notificado en la base de datos para evitar dobles envíos
-        await memory_service.mark_reminder_notified(rem_id)
-
-        # Mensaje espontáneo y dulce de Yui
+        # 1. Mensaje espontáneo y dulce de Yui
         message_text = f"¡{owner_nick}! 🌸 Disculpa que te interrumpa, me pediste que te avisara: **{title}**."
         if description:
             message_text += f" ({description})"
-        message_text += " ¡Aquí estoy para acompañarte!"
+        message_text += " ¡Aquí estoy para recordártelo!"
 
-        # Generar audio con voz de Yui
+        # 2. Marcar de inmediato como notificado en la base de datos para evitar dobles envíos
+        await memory_service.mark_reminder_notified(rem_id)
+
+        # 3. Guardar en el historial de conversación para que aparezca en chat
+        try:
+            await memory_service.save_conversation_exchange(
+                user_message=f"[Recordatorio automático programado: {title}]",
+                assistant_reply=message_text,
+                session_id="api_session"
+            )
+        except Exception as e:
+            print(f"[YUI PROACTIVE] Error guardando conversación: {e}")
+
+        # 4. Generar audio con voz de Yui
         try:
             audio_base64 = await voice_service.synthesize_to_base64(message_text)
         except Exception as e:
             print(f"[YUI PROACTIVE] Error sintetizando voz: {e}")
             audio_base64 = None
 
-        # Transmitir por WebSocket a la Laptop y Móvil
+        # 5. Transmitir por WebSocket a la Laptop y Móvil
         payload = {
             "type": "proactive_reminder",
             "title": title,

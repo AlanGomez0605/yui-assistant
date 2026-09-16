@@ -89,6 +89,14 @@ class YuiApp {
                     this.statusBadge.classList.add('online');
                     this.statusBadge.innerText = 'ONLINE • PROACTIVA';
                 }
+
+                // Mantener la conexión abierta con pings periódicos cada 15s
+                if (this.pingInterval) clearInterval(this.pingInterval);
+                this.pingInterval = setInterval(() => {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send("ping");
+                    }
+                }, 15000);
             };
 
             this.ws.onmessage = (event) => {
@@ -98,14 +106,15 @@ class YuiApp {
                         this.handleProactiveReminder(data);
                     }
                 } catch (e) {
-                    // Texto plano o keep-alive
+                    // Texto plano o pong
                 }
             };
 
             this.ws.onclose = () => {
-                console.warn('🌸 [YUI WS] Conexión perdida. Reconectando en 4s...');
+                console.warn('🌸 [YUI WS] Conexión perdida. Reconectando en 3s...');
+                if (this.pingInterval) clearInterval(this.pingInterval);
                 clearTimeout(this.wsReconnectTimeout);
-                this.wsReconnectTimeout = setTimeout(() => this.initWebSocketLive(), 4000);
+                this.wsReconnectTimeout = setTimeout(() => this.initWebSocketLive(), 3000);
             };
 
             this.ws.onerror = (err) => {
