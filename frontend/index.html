@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Yui - MHCP-0001 (Sword Art Online HUD)</title>
+    <meta name="description" content="Asistente de inteligencia artificial personal inspirada en Yui (Sword Art Online) con memoria persistente y voz en tiempo real.">
+    <meta name="theme-color" content="#060a11">
+
+    <!-- Fuentes Futuristas SAO -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Estilos SAO -->
+    <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+
+    <!-- Header Superior SAO HUD -->
+    <header class="sao-header">
+        <div class="sao-brand">
+            <span class="sao-logo-icon">🌸</span>
+            <div>
+                <h1 class="sao-title">YUI <span style="color: var(--accent-pink);">MHCP-0001</span></h1>
+                <span class="sao-subtitle">Cerebro Neuronal • Conectada a la Nube</span>
+            </div>
+        </div>
+
+        <div class="sao-status-group">
+            <div id="statusBadge" class="sao-badge online">ONLINE</div>
+        </div>
+    </header>
+
+    <!-- Contenedor Principal en Grid -->
+    <main class="sao-main-container">
+
+        <!-- Panel Lateral: Avatar & Monitor del Sistema -->
+        <aside class="sao-avatar-panel">
+            <div id="avatarWrapper" class="sao-avatar-wrapper">
+                <div class="sao-voice-ring"></div>
+                <div class="sao-avatar-img">🌸</div>
+            </div>
+
+            <h2 class="sao-avatar-name">Yui</h2>
+            <div class="sao-avatar-role">Mental Health & Task Program</div>
+
+            <!-- Monitor de Estado SAO -->
+            <div class="sao-stats">
+                <div>
+                    <div class="sao-stat-row">
+                        <span>ESTADO DE ÁNIMO</span>
+                        <span style="color: var(--accent-green);">FELIZ 100%</span>
+                    </div>
+                    <div class="sao-progress-bar">
+                        <div class="sao-progress-fill" style="width: 100%;"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="sao-stat-row">
+                        <span>MEMORIA CLOUD</span>
+                        <span style="color: var(--accent-cyan);">MONGODB SYNC</span>
+                    </div>
+                    <div class="sao-progress-bar">
+                        <div class="sao-progress-fill" style="width: 95%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Menú de Cristales de Acción SAO -->
+            <div class="sao-nav-menu">
+                <button id="btnOpenReminders" class="sao-menu-btn" type="button">
+                    <span style="font-size: 1.2rem;">📌</span>
+                    <span>Recordatorios (<span id="remindersCount">1</span>)</span>
+                </button>
+                <button id="btnOpenMemories" class="sao-menu-btn" type="button">
+                    <span style="font-size: 1.2rem;">🧠</span>
+                    <span>Recuerdos Cloud</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Panel Principal: Chat & Enlace de Voz -->
+        <section class="sao-chat-panel">
+            <div class="sao-chat-header">
+                <span class="sao-chat-title">CANAL DIRECTO • ALAN JAHIR</span>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">LATENCIA: &lt; 0.8s</span>
+            </div>
+
+            <!-- Contenedor de Mensajes -->
+            <div id="chatMessages" class="sao-messages-container">
+                <div class="sao-msg assistant">
+                    <div class="sao-msg-avatar">🌸</div>
+                    <div class="sao-msg-bubble">
+                        <div class="sao-msg-text">¡Hola, Alan! ✨ Qué alegría verte por aquí. Todos mis sistemas, recuerdos y voz están activos. ¿En qué te puedo ayudar hoy?</div>
+                        <span class="sao-msg-time">Enlace Activo</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Barra de Entrada y Controles de Voz -->
+            <div class="sao-input-bar">
+                <button id="micBtn" class="sao-mic-btn" type="button" title="Hablar por micrófono">
+                    🎤
+                </button>
+                <input 
+                    id="userInput" 
+                    class="sao-input" 
+                    type="text" 
+                    placeholder="Escribe un mensaje o presiona el micrófono..."
+                    autocomplete="off"
+                >
+                <button id="sendBtn" class="sao-send-btn" type="button" title="Enviar mensaje">
+                    ➤
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal de Recordatorios SAO -->
+    <div id="remindersModal" class="sao-modal-backdrop">
+        <div class="sao-modal-box">
+            <div class="sao-modal-header">
+                <h3 class="sao-modal-title">📌 Recordatorios & Tareas</h3>
+                <button class="sao-btn-icon sao-modal-close" type="button">✕</button>
+            </div>
+            <div id="modalBodyReminders" class="sao-modal-body">
+                <!-- Cargado dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Recuerdos SAO -->
+    <div id="memoriesModal" class="sao-modal-backdrop">
+        <div class="sao-modal-box">
+            <div class="sao-modal-header">
+                <h3 class="sao-modal-title">🧠 Recuerdos en MongoDB Atlas</h3>
+                <button class="sao-btn-icon sao-modal-close" type="button">✕</button>
+            </div>
+            <div id="modalBodyMemories" class="sao-modal-body">
+                <!-- Cargado dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts de la Aplicación -->
+    <script src="/scripts/sao_audio.js"></script>
+    <script src="/scripts/app.js"></script>
+</body>
+</html>

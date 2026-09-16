@@ -1,0 +1,613 @@
+/* ==============================================================================
+   PROYECTO YUI - SWORD ART ONLINE HUD & GLASSMORPHISM DESIGN SYSTEM
+   ============================================================================== */
+
+:root {
+  --bg-primary: #060a11;
+  --bg-secondary: rgba(13, 22, 35, 0.7);
+  --bg-card: rgba(18, 30, 48, 0.65);
+  --border-sao: rgba(0, 210, 255, 0.35);
+  --border-glow: rgba(0, 240, 255, 0.75);
+
+  --accent-cyan: #00d2ff;
+  --accent-neon: #00f0ff;
+  --accent-pink: #ff70a6;
+  --accent-gold: #ffb703;
+  --accent-green: #06d6a0;
+
+  --text-main: #f0f6fc;
+  --text-muted: #8b9bb4;
+  --text-accent: #00f0ff;
+
+  --font-hud: 'Orbitron', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --sao-glow: 0 0 15px rgba(0, 210, 255, 0.45);
+  --sao-glow-strong: 0 0 25px rgba(0, 240, 255, 0.75);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: var(--bg-primary);
+  background-image: 
+    radial-gradient(circle at 50% 15%, rgba(0, 210, 255, 0.12) 0%, transparent 60%),
+    linear-gradient(rgba(0, 210, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 210, 255, 0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 40px 40px, 40px 40px;
+  color: var(--text-main);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* ==============================================================================
+   HEADER & SAO TOP HUD
+   ============================================================================== */
+
+.sao-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(6, 10, 17, 0.85);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-sao);
+  padding: 12px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sao-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sao-logo-icon {
+  font-size: 1.6rem;
+  filter: drop-shadow(0 0 8px rgba(255, 112, 166, 0.6));
+  animation: pulseLogo 3s infinite ease-in-out;
+}
+
+@keyframes pulseLogo {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.sao-title {
+  font-family: var(--font-hud);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-main);
+  text-transform: uppercase;
+}
+
+.sao-subtitle {
+  font-size: 0.75rem;
+  letter-spacing: 1px;
+  color: var(--accent-cyan);
+  display: block;
+}
+
+.sao-status-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sao-badge {
+  font-family: var(--font-hud);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(6, 214, 160, 0.15);
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sao-badge.online::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  background: var(--accent-green);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-green);
+}
+
+.sao-btn-icon {
+  background: rgba(0, 210, 255, 0.1);
+  border: 1px solid var(--border-sao);
+  color: var(--text-main);
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.sao-btn-icon:hover {
+  background: rgba(0, 210, 255, 0.25);
+  border-color: var(--accent-neon);
+  box-shadow: var(--sao-glow);
+  transform: translateY(-1px);
+}
+
+/* ==============================================================================
+   MAIN CONTAINER & GRID
+   ============================================================================== */
+
+.sao-main-container {
+  flex: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 860px) {
+  .sao-main-container {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    gap: 16px;
+  }
+}
+
+/* ==============================================================================
+   SIDE PANEL (AVATAR & SYSTEM MONITOR)
+   ============================================================================== */
+
+.sao-avatar-panel {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-sao);
+  border-radius: 16px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.sao-avatar-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent-neon), transparent);
+}
+
+.sao-avatar-wrapper {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  margin: 12px 0 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sao-voice-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px dashed var(--accent-cyan);
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+
+.speaking .sao-voice-ring {
+  opacity: 1;
+  border-color: var(--accent-neon);
+  border-style: solid;
+  animation: rotateWave 4s linear infinite, pulseGlow 1.2s ease-in-out infinite;
+}
+
+@keyframes rotateWave {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 10px rgba(0, 240, 255, 0.3); }
+  50% { transform: scale(1.08); box-shadow: 0 0 25px rgba(0, 240, 255, 0.7); }
+}
+
+.sao-avatar-img {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.2), rgba(255, 112, 166, 0.2));
+  border: 2px solid var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3.8rem;
+  box-shadow: 0 0 20px rgba(0, 210, 255, 0.3);
+  z-index: 2;
+  user-select: none;
+}
+
+.sao-avatar-name {
+  font-family: var(--font-hud);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.sao-avatar-role {
+  font-size: 0.82rem;
+  color: var(--accent-pink);
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+/* Barras de estadísticas SAO */
+.sao-stats {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 210, 255, 0.15);
+}
+
+.sao-stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.sao-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.sao-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-neon));
+  border-radius: 3px;
+  box-shadow: 0 0 8px var(--accent-neon);
+}
+
+.sao-nav-menu {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.sao-menu-btn {
+  background: rgba(0, 210, 255, 0.08);
+  border: 1px solid var(--border-sao);
+  color: var(--text-main);
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.sao-menu-btn:hover {
+  background: rgba(0, 210, 255, 0.2);
+  border-color: var(--accent-neon);
+  box-shadow: var(--sao-glow);
+  transform: translateY(-2px);
+}
+
+/* ==============================================================================
+   CHAT & INTERACTION AREA
+   ============================================================================== */
+
+.sao-chat-panel {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-sao);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  min-height: 520px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.sao-chat-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(0, 210, 255, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sao-chat-title {
+  font-family: var(--font-hud);
+  font-size: 0.95rem;
+  letter-spacing: 1px;
+  color: var(--accent-cyan);
+}
+
+.sao-messages-container {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  scroll-behavior: smooth;
+}
+
+/* Scrollbar futurista */
+.sao-messages-container::-webkit-scrollbar {
+  width: 5px;
+}
+.sao-messages-container::-webkit-scrollbar-thumb {
+  background: var(--border-sao);
+  border-radius: 4px;
+}
+
+.sao-msg {
+  display: flex;
+  gap: 12px;
+  max-width: 82%;
+  animation: fadeInMsg 0.25s ease-out;
+}
+
+@keyframes fadeInMsg {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sao-msg.user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.sao-msg-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0, 210, 255, 0.15);
+  border: 1px solid var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.sao-msg.user .sao-msg-avatar {
+  background: rgba(255, 112, 166, 0.15);
+  border-color: var(--accent-pink);
+}
+
+.sao-msg-bubble {
+  background: rgba(13, 25, 42, 0.85);
+  border: 1px solid rgba(0, 210, 255, 0.25);
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-main);
+  position: relative;
+}
+
+.sao-msg.user .sao-msg-bubble {
+  background: linear-gradient(135deg, rgba(0, 150, 220, 0.35), rgba(0, 210, 255, 0.2));
+  border-color: var(--accent-cyan);
+  border-bottom-right-radius: 2px;
+}
+
+.sao-msg.assistant .sao-msg-bubble {
+  border-bottom-left-radius: 2px;
+  border-left: 3px solid var(--accent-pink);
+}
+
+.sao-msg-time {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: block;
+}
+
+/* ==============================================================================
+   INPUT CONTROLS & SAO CRYSTAL BUTTONS
+   ============================================================================== */
+
+.sao-input-bar {
+  padding: 16px 20px;
+  background: rgba(6, 12, 20, 0.95);
+  border-top: 1px solid rgba(0, 210, 255, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sao-input {
+  flex: 1;
+  background: rgba(18, 30, 48, 0.7);
+  border: 1px solid var(--border-sao);
+  border-radius: 24px;
+  padding: 12px 20px;
+  color: var(--text-main);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.sao-input:focus {
+  border-color: var(--accent-neon);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+}
+
+.sao-mic-btn {
+  background: rgba(255, 112, 166, 0.15);
+  border: 1px solid var(--accent-pink);
+  color: var(--accent-pink);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  transition: all 0.2s ease;
+}
+
+.sao-mic-btn.recording {
+  background: var(--accent-pink);
+  color: #fff;
+  box-shadow: 0 0 20px rgba(255, 112, 166, 0.8);
+  animation: pulseMic 1s infinite alternate;
+}
+
+@keyframes pulseMic {
+  from { transform: scale(1); }
+  to { transform: scale(1.15); }
+}
+
+.sao-send-btn {
+  background: linear-gradient(135deg, #00b4d8, #0077b6);
+  border: 1px solid var(--accent-neon);
+  color: #fff;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.4);
+}
+
+.sao-send-btn:hover {
+  transform: scale(1.08);
+  box-shadow: var(--sao-glow-strong);
+}
+
+/* ==============================================================================
+   MODAL DIALOGS (RECORDATORIOS & MEMORIAS)
+   ============================================================================== */
+
+.sao-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.sao-modal-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sao-modal-box {
+  background: rgba(14, 24, 38, 0.95);
+  border: 1px solid var(--accent-neon);
+  border-radius: 18px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 0 30px rgba(0, 210, 255, 0.35);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  transform: scale(0.95);
+  transition: transform 0.25s ease;
+}
+
+.sao-modal-backdrop.active .sao-modal-box {
+  transform: scale(1);
+}
+
+.sao-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(0, 210, 255, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sao-modal-title {
+  font-family: var(--font-hud);
+  font-size: 1.1rem;
+  color: var(--accent-cyan);
+}
+
+.sao-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sao-card-item {
+  background: rgba(22, 36, 56, 0.7);
+  border: 1px solid rgba(0, 210, 255, 0.2);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sao-card-text {
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.sao-card-sub {
+  font-size: 0.75rem;
+  color: var(--accent-gold);
+  margin-top: 4px;
+}
