@@ -14,11 +14,11 @@ sys.stdin.reconfigure(encoding='utf-8')
 settings = get_settings()
 
 async def main():
-    print("\n" + "=" * 62)
-    print(f"🌸  CANAL DIRECTO CON {settings.ASSISTANT_NAME.upper()} (MHCP-0001)")
-    print(f"    Usuario: {settings.OWNER_NAME} ({settings.OWNER_NICKNAME})")
-    print("    Escribe 'salir' para cerrar la sesión.")
-    print("=" * 62 + "\n")
+    print("\n" + "═" * 65)
+    print(f"  🌸  PROYECTO YUI - TERMINAL DE ENLACE DIRECTO (MHCP-0001)")
+    print(f"  👤  Usuario activo: {settings.OWNER_NAME} ({settings.OWNER_NICKNAME})")
+    print("  💡  Escribe 'salir' para cerrar la sesión.")
+    print("═" * 65 + "\n")
 
     if not gemini_service.is_configured():
         print("❌ Error: No se encontró una GEMINI_API_KEY válida en tu archivo .env")
@@ -26,38 +26,39 @@ async def main():
 
     history = []
 
-    # Mensaje inicial de conexión
-    print("🌸 Conectando con Yui...\n")
+    print("🌸 Estableciendo enlace mental con Yui...")
     welcome = await gemini_service.generate_reply(
         "¡Hola Yui! He abierto el canal directo de comunicación contigo.",
         history
     )
-    print(f"🌸 Yui:\n{welcome}\n")
+    print(f"\n🌸 Yui:\n{welcome}\n")
+    print("─" * 65)
     history.append({"role": "user", "content": "¡Hola Yui! He abierto el canal directo de comunicación contigo."})
     history.append({"role": "assistant", "content": welcome})
 
     while True:
         try:
-            user_input = input(f"💬 {settings.OWNER_NICKNAME}: ").strip()
+            user_input = input(f"\n💬 {settings.OWNER_NICKNAME}: ").strip()
             if not user_input:
                 continue
             if user_input.lower() in ["salir", "exit", "quit", "adios", "adiós"]:
                 farewell = await gemini_service.generate_reply("Yui, voy a cerrar la sesión por ahora. Nos vemos pronto.", history)
                 print(f"\n🌸 Yui:\n{farewell}\n")
+                print("═" * 65)
+                print("🌸 Enlace cerrado. ¡Que tengas un excelente día!")
                 break
 
-            # Enviar a Yui
             print("\n🌸 Yui está pensando...")
             reply = await gemini_service.generate_reply(user_input, history)
-            # Limpiar línea previa
-            print(f"\r🌸 Yui:\n{reply}\n")
+            print(f"\n🌸 Yui:\n{reply}\n")
+            print("─" * 65)
 
             # Guardar en el historial de la sesión
             history.append({"role": "user", "content": user_input})
             history.append({"role": "assistant", "content": reply})
 
-        except KeyboardInterrupt:
-            print("\n\n🌸 Yui: ¡Hasta luego Alan! Estaré aquí cuando me necesites.")
+        except (KeyboardInterrupt, EOFError):
+            print("\n\n🌸 Yui: ¡Hasta luego Alan! Estaré aquí esperándote cuando me necesites.")
             break
         except Exception as e:
             print(f"\n❌ Error en la comunicación: {e}\n")
