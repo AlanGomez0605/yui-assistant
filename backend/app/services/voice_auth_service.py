@@ -2,8 +2,6 @@ import datetime
 import logging
 from typing import List, Dict, Optional, Any
 from ..core.mongodb import mongodb_manager
-from ..core.database import AsyncSessionLocal
-from ..models.db_models import AuthorizedVoice
 from ..core.config import get_settings
 
 settings = get_settings()

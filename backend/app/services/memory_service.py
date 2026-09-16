@@ -1,12 +1,17 @@
 import datetime
 from typing import List, Dict, Optional, Any
-from sqlalchemy import select, update, delete, desc
-from ..core.database import AsyncSessionLocal, init_db
-from ..models.db_models import Memory, Reminder, ConversationMessage
+from bson import ObjectId
+import re
 from ..core.mongodb import mongodb_manager
 from ..core.config import get_settings
 
 settings = get_settings()
+
+def _format_id(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Convierte _id de MongoDB a un string 'id' para la API."""
+    if doc and "_id" in doc:
+        doc["id"] = str(doc.pop("_id"))
+    return doc
 
 class MemoryService:
     def __init__(self):
@@ -14,18 +19,15 @@ class MemoryService:
 
     async def ensure_db(self):
         if not self._db_initialized:
-            # 1. Intentar conectar a MongoDB Atlas en la nube
             await mongodb_manager.connect()
-            # 2. Inicializar SQLite local como respaldo seguro
-            await init_db()
             self._db_initialized = True
 
     # =========================================================================
-    # RECORDATORIOS / TAREAS (NUBE MONGODB + LOCAL SQLITE)
+    # RECORDATORIOS / TAREAS (100% NUBE MONGODB ATLAS)
     # =========================================================================
     async def add_reminder(self, title: str, due_datetime: str, description: Optional[str] = None) -> Dict[str, Any]:
         await self.ensure_db()
-        now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         reminder_data = {
             "title": title.strip(),
             "due_datetime": due_datetime.strip(),
@@ -35,156 +37,68 @@ class MemoryService:
             "created_at": now_str
         }
 
-        # Guardar en MongoDB si está activo
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            res = await coll.insert_one(dict(reminder_data))
-            reminder_data["id"] = str(res.inserted_id)
-
-        # Respaldar en SQLite local
-        async with AsyncSessionLocal() as session:
-            r = Reminder(
-                title=reminder_data["title"],
-                due_datetime=reminder_data["due_datetime"],
-                description=reminder_data["description"],
-                is_completed=False
-            )
-            session.add(r)
-            await session.commit()
-            if "id" not in reminder_data:
-                reminder_data["id"] = r.id
-
+        coll = mongodb_manager.get_collection("reminders")
+        res = await coll.insert_one(dict(reminder_data))
+        reminder_data["id"] = str(res.inserted_id)
         return reminder_data
 
     async def get_active_reminders(self) -> List[Dict[str, Any]]:
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            cursor = coll.find({"is_completed": False}).sort("_id", -1)
-            results = []
-            async for doc in cursor:
-                doc["id"] = str(doc.get("_id", doc.get("id")))
-                doc.pop("_id", None)
-                results.append(doc)
-            return results
-
-        # Fallback local SQLite
-        async with AsyncSessionLocal() as session:
-            stmt = select(Reminder).where(Reminder.is_completed == False).order_by(Reminder.id.desc())
-            result = await session.execute(stmt)
-            reminders = result.scalars().all()
-            return [
-                {
-                    "id": r.id,
-                    "title": r.title,
-                    "due_datetime": r.due_datetime,
-                    "description": r.description,
-                    "created_at": r.created_at.strftime("%Y-%m-%d %H:%M")
-                }
-                for r in reminders
-            ]
+        coll = mongodb_manager.get_collection("reminders")
+        cursor = coll.find({"is_completed": False}).sort("_id", -1)
+        results = []
+        async for doc in cursor:
+            results.append(_format_id(doc))
+        return results
 
     async def complete_reminder(self, reminder_id: Any) -> bool:
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            from bson import ObjectId
-            try:
-                await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_completed": True}})
-            except Exception:
-                await coll.update_one({"id": reminder_id}, {"$set": {"is_completed": True}})
-
+        coll = mongodb_manager.get_collection("reminders")
         try:
-            async with AsyncSessionLocal() as session:
-                stmt = update(Reminder).where(Reminder.id == int(reminder_id)).values(is_completed=True)
-                await session.execute(stmt)
-                await session.commit()
+            await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_completed": True}})
         except Exception:
-            pass
+            await coll.update_one({"id": str(reminder_id)}, {"$set": {"is_completed": True}})
         return True
 
     async def mark_reminder_notified(self, reminder_id: Any) -> bool:
         """Marca un recordatorio como notificado por el motor proactivo de Yui."""
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            from bson import ObjectId
-            try:
-                await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_notified": True, "is_completed": True}})
-            except Exception:
-                await coll.update_one({"id": reminder_id}, {"$set": {"is_notified": True, "is_completed": True}})
-
+        coll = mongodb_manager.get_collection("reminders")
         try:
-            async with AsyncSessionLocal() as session:
-                stmt = update(Reminder).where(Reminder.id == int(reminder_id)).values(is_completed=True)
-                await session.execute(stmt)
-                await session.commit()
+            await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_notified": True, "is_completed": True}})
         except Exception:
-            pass
+            await coll.update_one({"id": str(reminder_id)}, {"$set": {"is_notified": True, "is_completed": True}})
         return True
 
     async def delete_reminder(self, reminder_id: Any) -> bool:
-        """Elimina físicamente un recordatorio de MongoDB Atlas y SQLite."""
+        """Elimina físicamente un recordatorio de MongoDB Atlas."""
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            from bson import ObjectId
-            try:
-                await coll.delete_one({"_id": ObjectId(str(reminder_id))})
-            except Exception:
-                await coll.delete_one({"id": str(reminder_id)})
-
+        coll = mongodb_manager.get_collection("reminders")
         try:
-            async with AsyncSessionLocal() as session:
-                stmt = delete(Reminder).where(Reminder.id == int(reminder_id))
-                await session.execute(stmt)
-                await session.commit()
+            await coll.delete_one({"_id": ObjectId(str(reminder_id))})
         except Exception:
-            pass
+            await coll.delete_one({"id": str(reminder_id)})
         return True
 
     async def delete_all_reminders(self) -> int:
-        """Elimina físicamente TODOS los recordatorios de la base de datos."""
+        """Elimina físicamente TODOS los recordatorios de MongoDB Atlas."""
         await self.ensure_db()
-        deleted_count = 0
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            res = await coll.delete_many({})
-            deleted_count = res.deleted_count
-
-        try:
-            async with AsyncSessionLocal() as session:
-                stmt = delete(Reminder)
-                await session.execute(stmt)
-                await session.commit()
-        except Exception:
-            pass
-        return deleted_count
+        coll = mongodb_manager.get_collection("reminders")
+        res = await coll.delete_many({})
+        return res.deleted_count
 
     async def delete_reminders_by_title(self, title_query: str) -> int:
         """Elimina recordatorios que coincidan con un texto o título."""
         await self.ensure_db()
         if not title_query:
             return 0
-        deleted_count = 0
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("reminders")
-            import re
-            regex = re.compile(re.escape(title_query), re.IGNORECASE)
-            res = await coll.delete_many({"title": regex})
-            deleted_count = res.deleted_count
-
-        try:
-            async with AsyncSessionLocal() as session:
-                stmt = delete(Reminder).where(Reminder.title.ilike(f"%{title_query}%"))
-                await session.execute(stmt)
-                await session.commit()
-        except Exception:
-            pass
-        return deleted_count
+        coll = mongodb_manager.get_collection("reminders")
+        regex = re.compile(re.escape(title_query), re.IGNORECASE)
+        res = await coll.delete_many({"title": regex})
+        return res.deleted_count
 
     # =========================================================================
-    # RECUERDOS Y HECHOS CON CONTEXTO Y MOTIVOS EMOCIONALES
+    # RECUERDOS Y HECHOS CON CONTEXTO Y MOTIVOS EMOCIONALES (MONGODB ATLAS)
     # =========================================================================
     async def save_or_update_memory(
         self,
@@ -196,7 +110,7 @@ class MemoryService:
     ) -> Dict[str, Any]:
         """Guarda un recuerdo rico con su contexto y motivo emocional."""
         await self.ensure_db()
-        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
         keywords = topic_keywords or []
         if not keywords:
@@ -218,119 +132,53 @@ class MemoryService:
             "updated_at": now
         }
 
-        # Guardar en MongoDB Atlas
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("memories")
-            if keywords:
-                # Actualizar si ya existía un recuerdo sobre el mismo tema
-                query = {"topic_keywords": {"$in": keywords}}
-                existing = await coll.find_one(query)
-                if existing:
-                    await coll.update_one({"_id": existing["_id"]}, {"$set": doc_data})
-                    doc_data["id"] = str(existing["_id"])
-                    return doc_data
-            res = await coll.insert_one(dict(doc_data))
-            doc_data["id"] = str(res.inserted_id)
+        coll = mongodb_manager.get_collection("memories")
+        if keywords:
+            # Actualizar si ya existía un recuerdo sobre el mismo tema
+            query = {"topic_keywords": {"$in": keywords}}
+            existing = await coll.find_one(query)
+            if existing:
+                await coll.update_one({"_id": existing["_id"]}, {"$set": doc_data})
+                doc_data["id"] = str(existing["_id"])
+                return doc_data
 
-        # Guardar en SQLite local
-        async with AsyncSessionLocal() as session:
-            all_stmt = select(Memory)
-            res = await session.execute(all_stmt)
-            existing_mems = res.scalars().all()
-
-            updated = False
-            if keywords:
-                for old in existing_mems:
-                    if any(kw in old.content.lower() for kw in keywords):
-                        old.content = full_content
-                        old.importance = importance
-                        await session.commit()
-                        updated = True
-                        break
-
-            if not updated:
-                m = Memory(
-                    content=full_content,
-                    category=category.strip(),
-                    importance=importance
-                )
-                session.add(m)
-                await session.commit()
-
+        res = await coll.insert_one(dict(doc_data))
+        doc_data["id"] = str(res.inserted_id)
         return doc_data
 
     async def get_all_memories(self, limit: int = 30) -> List[Dict[str, Any]]:
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("memories")
-            cursor = coll.find({}).sort("importance", -1).limit(limit)
-            results = []
-            async for doc in cursor:
-                doc["id"] = str(doc.get("_id", doc.get("id")))
-                doc.pop("_id", None)
-                results.append(doc)
-            return results
-
-        async with AsyncSessionLocal() as session:
-            stmt = select(Memory).order_by(desc(Memory.importance), desc(Memory.id)).limit(limit)
-            result = await session.execute(stmt)
-            memories = result.scalars().all()
-            return [
-                {
-                    "id": m.id,
-                    "category": m.category,
-                    "content": m.content,
-                    "importance": m.importance
-                }
-                for m in memories
-            ]
+        coll = mongodb_manager.get_collection("memories")
+        cursor = coll.find({}).sort("importance", -1).limit(limit)
+        results = []
+        async for doc in cursor:
+            results.append(_format_id(doc))
+        return results
 
     async def delete_memory(self, memory_id: Any) -> bool:
-        """Elimina físicamente un recuerdo de MongoDB Atlas y SQLite."""
+        """Elimina físicamente un recuerdo de MongoDB Atlas."""
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("memories")
-            from bson import ObjectId
-            try:
-                await coll.delete_one({"_id": ObjectId(str(memory_id))})
-            except Exception:
-                await coll.delete_one({"id": str(memory_id)})
-
+        coll = mongodb_manager.get_collection("memories")
         try:
-            async with AsyncSessionLocal() as session:
-                stmt = delete(Memory).where(Memory.id == int(memory_id))
-                await session.execute(stmt)
-                await session.commit()
+            await coll.delete_one({"_id": ObjectId(str(memory_id))})
         except Exception:
-            pass
+            await coll.delete_one({"id": str(memory_id)})
         return True
 
     async def delete_memory_by_topic(self, topic: str) -> int:
         """Elimina recuerdos por palabra clave de tema."""
         await self.ensure_db()
-        deleted_count = 0
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("memories")
-            res = await coll.delete_many({"topic_keywords": topic})
-            deleted_count = res.deleted_count
-
-        try:
-            async with AsyncSessionLocal() as session:
-                stmt = delete(Memory).where(Memory.content.ilike(f"%{topic}%"))
-                await session.execute(stmt)
-                await session.commit()
-        except Exception:
-            pass
-        return deleted_count
+        coll = mongodb_manager.get_collection("memories")
+        res = await coll.delete_many({"topic_keywords": topic})
+        return res.deleted_count
 
     async def save_message(self, role: str, content: str, session_id: str = "default") -> None:
-        """Compatibilidad para guardar mensajes individuales."""
         pass
 
     async def save_conversation_exchange(self, user_message: str, assistant_reply: str, session_id: str = "default") -> None:
         """Guarda permanentemente cada intercambio de conversación con marcas de tiempo íntegras."""
         await self.ensure_db()
-        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         doc = {
             "session_id": session_id,
@@ -339,41 +187,19 @@ class MemoryService:
             "timestamp": now
         }
 
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("conversations")
-            await coll.insert_one(doc)
-
-        async with AsyncSessionLocal() as session:
-            m1 = ConversationMessage(session_id=session_id, role="user", content=user_message)
-            m2 = ConversationMessage(session_id=session_id, role="assistant", content=assistant_reply)
-            session.add_all([m1, m2])
-            await session.commit()
+        coll = mongodb_manager.get_collection("conversations")
+        await coll.insert_one(doc)
 
     async def get_recent_conversations(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Obtiene las conversaciones pasadas completas."""
         await self.ensure_db()
-        if mongodb_manager.is_connected():
-            coll = mongodb_manager.get_collection("conversations")
-            cursor = coll.find({}).sort("_id", -1).limit(limit)
-            res = []
-            async for d in cursor:
-                d.pop("_id", None)
-                res.append(d)
-            return list(reversed(res))
-
-        async with AsyncSessionLocal() as session:
-            stmt = select(ConversationMessage).order_by(desc(ConversationMessage.id)).limit(limit * 2)
-            result = await session.execute(stmt)
-            msgs = list(reversed(result.scalars().all()))
-            formatted = []
-            for i in range(0, len(msgs) - 1, 2):
-                if msgs[i].role == "user" and msgs[i+1].role == "assistant":
-                    formatted.append({
-                        "user_message": msgs[i].content,
-                        "assistant_reply": msgs[i+1].content,
-                        "timestamp": msgs[i].created_at.strftime("%Y-%m-%d %H:%M")
-                    })
-            return formatted
+        coll = mongodb_manager.get_collection("conversations")
+        cursor = coll.find({}).sort("_id", -1).limit(limit)
+        res = []
+        async for d in cursor:
+            d.pop("_id", None)
+            res.append(d)
+        return list(reversed(res))
 
     # =========================================================================
     # CONSTRUCCIÓN DE CONTEXTO VIVO

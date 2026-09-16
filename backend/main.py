@@ -20,32 +20,30 @@ try:
     from backend.app.core.config import get_settings
     from backend.app.api.endpoints import router as api_router
     from backend.app.core.mongodb import mongodb_manager
-    from backend.app.core.database import init_db
     from backend.app.services.proactive_service import proactive_service
 except ImportError:
     from app.core.config import get_settings
     from app.api.endpoints import router as api_router
     from app.core.mongodb import mongodb_manager
-    from app.core.database import init_db
     from app.services.proactive_service import proactive_service
 
 settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicializar bases de datos antes de recibir solicitudes
-    print("[YUI] Conectando con MongoDB Atlas y SQLite local...")
+    # Inicializar MongoDB Atlas antes de recibir solicitudes
+    print("[YUI] Conectando con MongoDB Atlas en la nube...")
     try:
         await mongodb_manager.connect()
-        await init_db()
-        print("[YUI] Bases de datos listas y sincronizadas.")
+        print("[YUI] MongoDB Atlas listo y sincronizado 24/7.")
         # Iniciar monitoreo autónomo en segundo plano
         proactive_service.start()
     except Exception as e:
-        print(f"[YUI] Aviso al iniciar bases de datos: {e}")
+        print(f"[YUI] Aviso al conectar MongoDB Atlas: {e}")
     yield
     proactive_service.stop()
     print("[YUI] Servidor finalizado.")
+
 
 
 app = FastAPI(
