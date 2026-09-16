@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from typing import List, Optional
 from pydantic import BaseModel
 from ..core.config import get_settings
 from ..models.schemas import ChatRequest, ChatResponse
 from ..services.gemini_service import gemini_service
 from ..services.memory_service import memory_service
+from ..services.voice_service import voice_service
+from ..services.voice_auth_service import voice_auth_service
 
 router = APIRouter()
 settings = get_settings()
@@ -18,6 +20,14 @@ class MemoryCreate(BaseModel):
     content: str
     category: str = "fact"
     importance: int = 3
+
+class SpeakRequest(BaseModel):
+    text: str
+
+class VoiceAuthorizeRequest(BaseModel):
+    name: str
+    nickname: Optional[str] = None
+    role: str = "guest"
 
 @router.get("/health")
 async def health_check():
@@ -36,7 +46,7 @@ async def system_status():
     return {
         "assistant_state": "active",
         "mood": "happy",
-        "message": f"¡Hola {settings.OWNER_NICKNAME}! Todos los sistemas base y mi memoria persistente están listos.",
+        "message": f"¡Hola {settings.OWNER_NICKNAME}! Todos los sistemas base, voz y memoria persistente están listos.",
         "active_reminders_count": len(reminders)
     }
 
@@ -55,46 +65,71 @@ async def chat_with_yui(request: ChatRequest):
     )
 
 # =============================================================================
+# ENDPOINTS DE VOZ Y AUDIO (TTS & SPEAKER ID)
+# =============================================================================
+
+@router.post("/voice/speak")
+async def speak_text(req: SpeakRequest):
+    """Sintetiza texto a audio MP3 de alta fidelidad para reproducción en cliente."""
+    audio_bytes = await voice_service.synthesize_to_bytes(req.text)
+    return Response(content=audio_bytes, media_type="audio/mpeg")
+
+@router.get("/voice/authorized")
+async def get_authorized_voices():
+    """Obtiene la lista de voces autorizadas para interactuar con Yui."""
+    return await voice_auth_service.get_authorized_voices()
+
+@router.post("/voice/authorize")
+async def authorize_voice(req: VoiceAuthorizeRequest):
+    """Agrega un nuevo perfil de voz autorizado."""
+    profile = await voice_auth_service.add_authorized_voice(
+        name=req.name,
+        role=req.role,
+        nickname=req.nickname
+    )
+    return {"status": "authorized", "profile": profile}
+
+@router.post("/voice/revoke")
+async def revoke_voice(name: str):
+    """Revoca los permisos de una voz."""
+    success = await voice_auth_service.revoke_authorized_voice(name)
+    return {"status": "revoked" if success else "not_found", "name": name}
+
+# =============================================================================
 # ENDPOINTS DE MEMORIA Y RECORDATORIOS
 # =============================================================================
 
 @router.get("/reminders")
 async def get_reminders():
-    """Obtiene los recordatorios y tareas pendientes."""
     return await memory_service.get_active_reminders()
 
 @router.post("/reminders")
 async def create_reminder(req: ReminderCreate):
-    """Crea un nuevo recordatorio en la memoria de Yui."""
     reminder = await memory_service.add_reminder(
         title=req.title,
         due_datetime=req.due_datetime,
         description=req.description
     )
-    return {"status": "created", "id": reminder.id, "title": reminder.title}
+    return {"status": "created", "id": reminder.get("id"), "title": reminder.get("title")}
 
 @router.post("/reminders/{reminder_id}/complete")
-async def complete_reminder(reminder_id: int):
-    """Marca un recordatorio como completado."""
+async def complete_reminder(reminder_id: str):
     await memory_service.complete_reminder(reminder_id)
     return {"status": "completed", "id": reminder_id}
 
 @router.get("/memories")
 async def get_memories():
-    """Obtiene los recuerdos a largo plazo que Yui ha aprendido sobre Alan."""
     return await memory_service.get_all_memories()
 
 @router.post("/memories")
 async def create_memory(req: MemoryCreate):
-    """Agrega un recuerdo manualmente a la memoria permanente de Yui."""
-    memory = await memory_service.add_memory(
+    memory = await memory_service.save_or_update_memory(
         content=req.content,
         category=req.category,
         importance=req.importance
     )
-    return {"status": "saved", "id": memory.id, "content": memory.content}
+    return {"status": "saved", "memory": memory}
 
 @router.get("/history")
-async def get_history(session_id: str = "default", limit: int = 20):
-    """Obtiene el historial de mensajes persistentes."""
-    return await memory_service.get_recent_messages(session_id=session_id, limit=limit)
+async def get_history(limit: int = 15):
+    return await memory_service.get_recent_conversations(limit=limit)

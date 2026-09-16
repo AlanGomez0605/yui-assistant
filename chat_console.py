@@ -2,21 +2,21 @@ import asyncio
 import sys
 import warnings
 
-# Silenciar advertencias de consola
 warnings.filterwarnings("ignore")
 
 from backend.app.services.gemini_service import gemini_service
+from backend.app.services.voice_service import voice_service
 from backend.app.core.config import get_settings
 
-# Asegurar codificación UTF-8 en terminal Windows
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stdin.reconfigure(encoding='utf-8')
 settings = get_settings()
 
 async def main():
     print("\n" + "═" * 65)
-    print(f"  🌸  PROYECTO YUI - TERMINAL DE ENLACE DIRECTO (MHCP-0001)")
+    print(f"  🌸  PROYECTO YUI - TERMINAL CON VOZ DIRECTA (MHCP-0001)")
     print(f"  👤  Usuario activo: {settings.OWNER_NAME} ({settings.OWNER_NICKNAME})")
+    print("  🔊  Modo de voz: ACTIVADO (Edge-TTS Neural)")
     print("  💡  Escribe 'salir' o 'exit' para cerrar la sesión.")
     print("═" * 65 + "\n")
 
@@ -26,7 +26,7 @@ async def main():
 
     history = []
 
-    print("🌸 Estableciendo enlace mental con Yui...\n")
+    print("🌸 Estableciendo enlace mental y de voz con Yui...\n")
     sys.stdout.write("🌸 Yui:\n")
     sys.stdout.flush()
 
@@ -34,7 +34,7 @@ async def main():
     async for chunk in gemini_service.generate_reply_stream(
         "¡Hola Yui! He abierto el canal directo de comunicación contigo.",
         history,
-        persist_session=None  # No persistir saludo de enlace
+        persist_session=None
     ):
         sys.stdout.write(chunk)
         sys.stdout.flush()
@@ -42,6 +42,9 @@ async def main():
 
     full_welcome = "".join(initial_greeting)
     print("\n\n" + "─" * 65)
+    # Reproducir voz del saludo inicial
+    asyncio.create_task(voice_service.speak(full_welcome, wait=False))
+
     history.append({"role": "user", "content": "¡Hola Yui! He abierto el canal directo de comunicación contigo."})
     history.append({"role": "assistant", "content": full_welcome})
 
@@ -53,6 +56,7 @@ async def main():
 
             if user_input.lower() in ["salir", "exit", "quit", "adios", "adiós"]:
                 print("\n🌸 Yui:\n", end="", flush=True)
+                farewell_chunks = []
                 async for chunk in gemini_service.generate_reply_stream(
                     "Yui, voy a cerrar la sesión por ahora. Nos vemos pronto.",
                     history,
@@ -60,9 +64,12 @@ async def main():
                 ):
                     sys.stdout.write(chunk)
                     sys.stdout.flush()
-                
-                # Esperar a que se guarden todos los recuerdos en segundo plano antes de salir
-                print("\n\n🌸 Guardando recuerdos en la base de datos...", end="", flush=True)
+                    farewell_chunks.append(chunk)
+
+                farewell_text = "".join(farewell_chunks)
+                await voice_service.speak(farewell_text, wait=True)
+
+                print("\n\n🌸 Guardando recuerdos en la base de datos en la nube...", end="", flush=True)
                 await gemini_service.wait_for_pending_tasks(timeout=3.0)
                 print(" ¡Listo!")
                 print("═" * 65)
@@ -79,7 +86,9 @@ async def main():
             full_reply = "".join(reply_chunks)
             print("\n\n" + "─" * 65)
 
-            # Guardar en el historial de la sesión
+            # Reproducir voz sintetizada de Yui al mismo tiempo
+            asyncio.create_task(voice_service.speak(full_reply, wait=False))
+
             history.append({"role": "user", "content": user_input})
             history.append({"role": "assistant", "content": full_reply})
 
