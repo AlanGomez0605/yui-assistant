@@ -61,4 +61,25 @@ object DeviceControlManager {
             false
         }
     }
+
+    fun sendWhatsApp(context: Context, rawPhoneNumber: String, message: String): Boolean {
+        return try {
+            var phone = rawPhoneNumber.replace(" ", "").replace("-", "").replace("+", "").replace("(", "").replace(")", "")
+            if (phone.length == 10) {
+                phone = "52$phone"
+            }
+
+            val encodedMsg = java.net.URLEncoder.encode(message, "UTF-8")
+            val uri = android.net.Uri.parse("https://api.whatsapp.com/send?phone=$phone&text=$encodedMsg")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.whatsapp")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error enviando WhatsApp", e)
+            false
+        }
+    }
 }

@@ -185,6 +185,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
+        fun sendWhatsApp(phoneNumber: String, message: String): Boolean {
+            return DeviceControlManager.sendWhatsApp(context, phoneNumber, message)
+        }
+
+        @JavascriptInterface
         fun isNativeCompanion(): Boolean {
             return true
         }

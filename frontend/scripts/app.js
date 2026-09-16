@@ -342,6 +342,18 @@ class YuiApp {
                     parseInt(calMatch[3])
                 );
             }
+
+            const waMatch = text.match(/\[\[SEND_WHATSAPP:(.+?):(.*?)\]\]/i);
+            if (waMatch) {
+                window.AndroidYuiBridge.sendWhatsApp(waMatch[1].trim(), waMatch[2].trim());
+            }
+        } else if (role === 'assistant') {
+            const waMatch = text.match(/\[\[SEND_WHATSAPP:(.+?):(.*?)\]\]/i);
+            if (waMatch) {
+                const phone = waMatch[1].replace(/\D/g, '');
+                const msg = encodeURIComponent(waMatch[2].trim());
+                window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${msg}`, '_blank');
+            }
         }
 
         // Limpiar etiquetas de comando del texto visible
