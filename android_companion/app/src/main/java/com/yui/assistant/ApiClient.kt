@@ -17,12 +17,14 @@ object ApiClient {
 
     fun getBackendUrl(context: Context): String {
         val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_BACKEND_URL, DEFAULT_URL) ?: DEFAULT_URL
+        val rawUrl = prefs.getString(KEY_BACKEND_URL, DEFAULT_URL) ?: DEFAULT_URL
+        return rawUrl.replace(" ", "").replace("\n", "").replace("\r", "").trim().trimEnd('/')
     }
 
     fun setBackendUrl(context: Context, url: String) {
+        val cleanUrl = url.replace(" ", "").replace("\n", "").replace("\r", "").trim().trimEnd('/')
         val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_BACKEND_URL, url.trimEnd('/')).apply()
+        prefs.edit().putString(KEY_BACKEND_URL, cleanUrl).apply()
     }
 
     suspend fun syncContacts(context: Context, contactsJsonArray: JSONArray): Boolean = withContext(Dispatchers.IO) {
@@ -31,18 +33,21 @@ object ApiClient {
             val url = URL("$baseUrl/api/contacts/sync")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            conn.setRequestProperty("Accept", "application/json")
             conn.doOutput = true
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            conn.connectTimeout = 15000
+            conn.readTimeout = 15000
 
             val payload = JSONObject().apply {
                 put("contacts", contactsJsonArray)
             }
 
-            OutputStreamWriter(conn.outputStream).use { writer ->
-                writer.write(payload.toString())
-                writer.flush()
+            val bytes = payload.toString().toByteArray(Charsets.UTF_8)
+            conn.setFixedLengthStreamingMode(bytes.size)
+            conn.outputStream.use { os ->
+                os.write(bytes)
+                os.flush()
             }
 
             val responseCode = conn.responseCode
