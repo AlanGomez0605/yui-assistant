@@ -12,8 +12,8 @@ settings = get_settings()
 class VoiceService:
     def __init__(self):
         self.voice = settings.TTS_VOICE
-        self.rate = settings.TTS_RATE
-        self.pitch = settings.TTS_PITCH
+        self.rate = "+18%"  # Velocidad más dinámica, ágil y natural
+        self.pitch = "+2Hz"
         self.temp_dir = os.path.abspath("./data/temp_audio")
         self.ps_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "play_audio.ps1"))
         os.makedirs(self.temp_dir, exist_ok=True)
@@ -21,16 +21,28 @@ class VoiceService:
         self._current_process = None
 
     def clean_text_for_speech(self, text: str) -> str:
-        """Limpia rolplay (*sonríe*), emojis y símbolos para una locución fluida y natural."""
-        cleaned = re.sub(r'\*[^*]+\*', '', text)
-        cleaned = re.sub(r'\([^\)]*\)', '', cleaned)
+        """Limpia rolplay y emojis preservando palabras en negritas (**palabra**) para locución perfecta."""
+        # 1. Eliminar descripciones entre paréntesis con asteriscos tipo *(Doy un brinquito...)* o (sonríe)
+        cleaned = re.sub(r'\*\([^)]*\)\*', '', text)
+        cleaned = re.sub(r'\([^)]*(?:sonríe|ojitos|mira|brinquito|manita|abrazo|besito|suspiro|asiente)[^)]*\)', '', cleaned, flags=re.IGNORECASE)
+
+        # 2. Convertir negritas (**texto**) a texto simple para NO borrar las palabras destacadas
+        cleaned = cleaned.replace("**", "")
+        cleaned = cleaned.replace("__", "")
+
+        # 3. Eliminar acciones simples entre asteriscos individuales tipo *sonríe* o *se ríe*
+        cleaned = re.sub(r'\*(?:[a-záéíóúñ\s,.]+)\*', '', cleaned, flags=re.IGNORECASE)
+
+        # 4. Eliminar emojis y caracteres especiales
         cleaned = re.sub(r'[\U00010000-\U0010ffff]', '', cleaned)
-        cleaned = cleaned.replace("**", "").replace("*", "").replace("#", "").replace("`", "").replace(">", "")
+        cleaned = cleaned.replace("#", "").replace("`", "").replace(">", "").replace("~", "").replace("*", "")
+
+        # 5. Normalizar espacios y signos de puntuación
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
         return cleaned
 
     def stop(self):
-        """Detiene cualquier audio que se esté reproduciendo actualmente para evitar solapamientos."""
+        """Detiene cualquier audio que se esté reproduciendo actualmente."""
         if self._current_process is not None:
             try:
                 self._current_process.terminate()
@@ -63,7 +75,7 @@ class VoiceService:
         return b""
 
     async def synthesize_to_file(self, text: str, output_path: str) -> bool:
-        """Sintetiza texto y lo guarda en un archivo MP3 con reintento automático."""
+        """Sintetiza texto y lo guarda en un archivo MP3."""
         clean_text = self.clean_text_for_speech(text)
         if not clean_text:
             return False
@@ -84,12 +96,11 @@ class VoiceService:
         return False
 
     def play_audio_file(self, file_path: str, wait: bool = False) -> None:
-        """Reproduce un archivo MP3 en Windows cancelando audios anteriores para que no se sobrepongan."""
+        """Reproduce un archivo MP3 deteniendo audios previos para evitar solapamientos."""
         abs_path = os.path.abspath(file_path)
         if not os.path.exists(abs_path):
             return
 
-        # Detener audio anterior para evitar solapamiento
         self.stop()
 
         cmd = [
@@ -112,7 +123,7 @@ class VoiceService:
             pass
 
     async def speak(self, text: str, wait: bool = False) -> None:
-        """Sintetiza y reproduce la voz de Yui de forma asíncrona e instantánea."""
+        """Sintetiza y reproduce la voz de Yui."""
         try:
             self._counter += 1
             temp_file = os.path.join(self.temp_dir, f"speech_{self._counter % 20}.mp3")
