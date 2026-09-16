@@ -155,14 +155,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncDeviceContacts() {
-        tvStatus.text = "Sincronizando contactos..."
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), PERMISSION_REQUEST_CODE)
+            Toast.makeText(this, "Por favor concede el permiso de Contactos", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        tvStatus.text = "Sincronizando contactos con MongoDB..."
         CoroutineScope(Dispatchers.Main).launch {
-            val success = ContactsSyncManager.syncContactsToCloud(this@MainActivity)
+            val (success, count) = ContactsSyncManager.syncContactsToCloud(this@MainActivity)
             if (success) {
-                tvStatus.text = "✅ Contactos sincronizados en MongoDB Atlas."
-                Toast.makeText(this@MainActivity, "Contactos guardados en la Nube", Toast.LENGTH_SHORT).show()
+                tvStatus.text = "✅ $count contactos sincronizados en MongoDB Atlas."
+                Toast.makeText(this@MainActivity, "✅ $count contactos guardados en la Nube", Toast.LENGTH_SHORT).show()
             } else {
-                tvStatus.text = "❌ Error al sincronizar. Revisa conexión."
+                if (count == 0) {
+                    tvStatus.text = "⚠️ No se encontraron contactos en tu agenda."
+                    Toast.makeText(this@MainActivity, "No se encontraron contactos", Toast.LENGTH_SHORT).show()
+                } else {
+                    tvStatus.text = "❌ Error al sincronizar. Revisa conexión."
+                    Toast.makeText(this@MainActivity, "Error de red al sincronizar", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

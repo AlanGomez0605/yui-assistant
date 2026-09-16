@@ -18,6 +18,10 @@ object ApiClient {
     fun getBackendUrl(context: Context): String {
         val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val rawUrl = prefs.getString(KEY_BACKEND_URL, DEFAULT_URL) ?: DEFAULT_URL
+        if (rawUrl.contains("onrender.com") || rawUrl.contains("tu-app") || rawUrl.isBlank()) {
+            setBackendUrl(context, DEFAULT_URL)
+            return DEFAULT_URL
+        }
         return rawUrl.replace(" ", "").replace("\n", "").replace("\r", "").trim().trimEnd('/')
     }
 
