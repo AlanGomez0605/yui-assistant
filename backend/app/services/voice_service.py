@@ -12,7 +12,7 @@ settings = get_settings()
 class VoiceService:
     def __init__(self):
         self.voice = settings.TTS_VOICE
-        self.rate = "+18%"  # Velocidad más dinámica, ágil y natural
+        self.rate = "+18%"  # Velocidad dinámica y ágil
         self.pitch = "+2Hz"
         self.temp_dir = os.path.abspath("./data/temp_audio")
         self.ps_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "play_audio.ps1"))
@@ -20,24 +20,38 @@ class VoiceService:
         self._counter = 0
         self._current_process = None
 
+        # Compilar filtro exhaustivo de todos los rangos Unicode de emojis y símbolos
+        self._emoji_regex = re.compile(
+            r'['
+            r'\U00010000-\U0010FFFF'  # Emojis suplementarios, rostros, objetos, animales, banderas
+            r'\u2600-\u27BF'          # Símbolos misceláneos, corazones, destellos, dingbats
+            r'\u2300-\u23FF'          # Símbolos técnicos
+            r'\u2B50\u2B55\uFE0F\u200D\u200C'  # Estrellas y modificadores de emoji
+            r']+'
+        )
+
     def clean_text_for_speech(self, text: str) -> str:
-        """Limpia rolplay y emojis preservando palabras en negritas (**palabra**) para locución perfecta."""
+        """Limpia todos los emojis, símbolos, emoticonos y rolplay para locución pura y natural."""
         # 1. Eliminar descripciones entre paréntesis con asteriscos tipo *(Doy un brinquito...)* o (sonríe)
         cleaned = re.sub(r'\*\([^)]*\)\*', '', text)
-        cleaned = re.sub(r'\([^)]*(?:sonríe|ojitos|mira|brinquito|manita|abrazo|besito|suspiro|asiente)[^)]*\)', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\([^)]*(?:sonríe|ojitos|mira|brinquito|manita|abrazo|besito|suspiro|asiente|emoción|alegría|guiño)[^)]*\)', '', cleaned, flags=re.IGNORECASE)
 
-        # 2. Convertir negritas (**texto**) a texto simple para NO borrar las palabras destacadas
-        cleaned = cleaned.replace("**", "")
-        cleaned = cleaned.replace("__", "")
+        # 2. Convertir negritas (**texto**) a texto simple para preservar las palabras
+        cleaned = cleaned.replace("**", "").replace("__", "")
 
         # 3. Eliminar acciones simples entre asteriscos individuales tipo *sonríe* o *se ríe*
         cleaned = re.sub(r'\*(?:[a-záéíóúñ\s,.]+)\*', '', cleaned, flags=re.IGNORECASE)
 
-        # 4. Eliminar emojis y caracteres especiales
-        cleaned = re.sub(r'[\U00010000-\U0010ffff]', '', cleaned)
+        # 4. Eliminar TODOS los emojis Unicode (destellos, corazones, autos, mochilas, etc.)
+        cleaned = self._emoji_regex.sub('', cleaned)
+
+        # 5. Eliminar emoticonos de texto y kaomojis (ej. *^o^*, :D, <3, ;), xD, ^_^)
+        cleaned = re.sub(r'(?:<3|:3|:\)|:D|;\)|xD|XD|T_T|;_;|\^_\^|\*[\^oO_~-]+\*|\*[oO\^_\-]+\*)', '', cleaned)
+
+        # 6. Eliminar caracteres residuales de markdown
         cleaned = cleaned.replace("#", "").replace("`", "").replace(">", "").replace("~", "").replace("*", "")
 
-        # 5. Normalizar espacios y signos de puntuación
+        # 7. Normalizar espacios
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
         return cleaned
 
