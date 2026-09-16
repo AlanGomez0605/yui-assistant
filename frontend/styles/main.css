@@ -240,15 +240,18 @@ body {
   width: 130px;
   height: 130px;
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(0, 210, 255, 0.2), rgba(255, 112, 166, 0.2));
   border: 2px solid var(--accent-cyan);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 3.8rem;
-  box-shadow: 0 0 20px rgba(0, 210, 255, 0.3);
+  object-fit: cover;
+  box-shadow: 0 0 20px rgba(0, 210, 255, 0.4);
   z-index: 2;
   user-select: none;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.speaking .sao-avatar-img {
+  border-color: var(--accent-neon);
+  box-shadow: 0 0 30px rgba(255, 112, 166, 0.7), 0 0 15px rgba(0, 240, 255, 0.8);
+  transform: scale(1.04);
 }
 
 .sao-avatar-name {
