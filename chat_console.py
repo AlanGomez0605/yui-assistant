@@ -67,7 +67,7 @@ async def main():
                 print("\n🌸 Yui:\n", end="", flush=True)
                 farewell_chunks = []
                 async for chunk in gemini_service.generate_reply_stream(
-                    "Yui, voy a cerrar la sesión por ahora. Nos vemos pronto.",
+                    "Hasta luego Yui, me retiro. Dame una despedida breve de una sola frase.",
                     history,
                     persist_session=None
                 ):
