@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Cuentas de Google para manipulación y acceso de Yui -->
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
@@ -94,7 +95,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Receptor de Llamadas Entrantes (Manejador de 30-40s) -->
+        <!-- Receptor de Llamadas Entrantes (Filtro 5s para desconocidos) -->
         <receiver
             android:name=".CallInterceptorReceiver"
             android:enabled="true"
@@ -103,6 +104,15 @@
                 <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>
         </receiver>
+
+        <!-- Servicio de Sincronización de Recordatorios en Segundo Plano -->
+        <!-- Conecta por WebSocket al backend para recibir recordatorios en tiempo real -->
+        <!-- Si el WS falla, hace poll HTTP cada 60s como respaldo -->
+        <service
+            android:name=".YuiReminderSyncService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Servicio de Accesibilidad para Control y Navegación del Dispositivo -->
         <service
