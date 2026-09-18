@@ -11,13 +11,14 @@ import org.json.JSONObject
 object ContactsSyncManager {
 
     private const val TAG = "YuiContacts"
+    private const val BATCH_SIZE = 50
 
-    fun readAllContacts(context: Context): JSONArray {
-        val contactsArray = JSONArray()
+    fun readAllContacts(context: Context): List<JSONObject> {
+        val contactList = mutableListOf<JSONObject>()
 
         if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "Permiso READ_CONTACTS no concedido todavía.")
-            return contactsArray
+            return contactList
         }
 
         try {
@@ -53,7 +54,7 @@ object ContactsSyncManager {
                             put("relationship", "conocido")
                             put("is_vip", false)
                         }
-                        contactsArray.put(contactObj)
+                        contactList.add(contactObj)
                     }
                 }
             }
@@ -61,15 +62,37 @@ object ContactsSyncManager {
             Log.e(TAG, "Error leyendo contactos de la agenda", e)
         }
 
-        return contactsArray
+        return contactList
     }
 
-    suspend fun syncContactsToCloud(context: Context): Pair<Boolean, Int> {
+    suspend fun syncContactsToCloud(
+        context: Context,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): Triple<Boolean, Int, String> {
         val contacts = readAllContacts(context)
-        if (contacts.length() == 0) {
-            return Pair(false, 0)
+        val total = contacts.size
+        if (total == 0) {
+            return Triple(false, 0, "No se encontraron contactos en la agenda")
         }
-        val success = ApiClient.syncContacts(context, contacts)
-        return Pair(success, contacts.length())
+
+        var uploadedCount = 0
+        val batches = contacts.chunked(BATCH_SIZE)
+
+        for (batch in batches) {
+            val jsonArray = JSONArray()
+            for (contact in batch) {
+                jsonArray.put(contact)
+            }
+
+            val (success, errorMsg) = ApiClient.syncContacts(context, jsonArray)
+            if (!success) {
+                return Triple(false, uploadedCount, errorMsg)
+            }
+
+            uploadedCount += batch.size
+            onProgress?.invoke(uploadedCount, total)
+        }
+
+        return Triple(true, total, "OK")
     }
 }

@@ -33,8 +33,8 @@ class VoiceAuthorizeRequest(BaseModel):
     role: str = "guest"
 
 class ContactItem(BaseModel):
-    name: str
-    phone: str
+    name: Optional[str] = "Sin nombre"
+    phone: Optional[str] = ""
     relationship: Optional[str] = "conocido"
     is_vip: Optional[bool] = False
 

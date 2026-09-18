@@ -161,19 +161,25 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        tvStatus.text = "Sincronizando contactos con MongoDB..."
+        tvStatus.text = "Leyendo agenda del teléfono..."
+        btnSyncContacts.isEnabled = false
+
         CoroutineScope(Dispatchers.Main).launch {
-            val (success, count) = ContactsSyncManager.syncContactsToCloud(this@MainActivity)
+            val (success, count, errorMsg) = ContactsSyncManager.syncContactsToCloud(this@MainActivity) { current, total ->
+                tvStatus.text = "Sincronizando: $current de $total contactos..."
+            }
+            btnSyncContacts.isEnabled = true
+
             if (success) {
                 tvStatus.text = "✅ $count contactos sincronizados en MongoDB Atlas."
                 Toast.makeText(this@MainActivity, "✅ $count contactos guardados en la Nube", Toast.LENGTH_SHORT).show()
             } else {
-                if (count == 0) {
+                if (count == 0 && errorMsg.contains("No se encontraron")) {
                     tvStatus.text = "⚠️ No se encontraron contactos en tu agenda."
                     Toast.makeText(this@MainActivity, "No se encontraron contactos", Toast.LENGTH_SHORT).show()
                 } else {
-                    tvStatus.text = "❌ Error al sincronizar. Revisa conexión."
-                    Toast.makeText(this@MainActivity, "Error de red al sincronizar", Toast.LENGTH_SHORT).show()
+                    tvStatus.text = "❌ Error al sincronizar: $errorMsg"
+                    Toast.makeText(this@MainActivity, "Error: $errorMsg", Toast.LENGTH_LONG).show()
                 }
             }
         }
