@@ -114,24 +114,43 @@ object AutonomousReminderManager {
 
             if (conn.responseCode in 200..299) {
                 val response = conn.inputStream.bufferedReader().use { it.readText() }
-                val jsonArray = JSONArray(response)
+
+                // El backend puede devolver un array JSON directamente o {reminders: [...]}
+                val jsonArray: JSONArray = try {
+                    JSONArray(response)
+                } catch (e: Exception) {
+                    val obj = org.json.JSONObject(response)
+                    obj.optJSONArray("reminders") ?: obj.optJSONArray("data") ?: JSONArray()
+                }
+
                 var count = 0
-                val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                val formatsToTry = listOf(
+                    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()),
+                    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()),
+                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+                )
 
                 for (i in 0 until jsonArray.length()) {
                     val item = jsonArray.getJSONObject(i)
                     val title = item.optString("title", "Recordatorio de Yui")
                     val dueStr = item.optString("due_datetime", "")
-                    if (dueStr.isNotEmpty()) {
-                        try {
-                            val parsedDate = sdf.parse(dueStr)
-                            if (parsedDate != null && parsedDate.time > System.currentTimeMillis()) {
-                                scheduleLocalReminder(context, title, parsedDate.time, item.optString("description", ""))
-                                count++
-                            }
-                        } catch (e: Exception) {
-                            // Ignorar error de parsing de fecha individual
-                        }
+                    val desc = item.optString("description", "")
+
+                    if (dueStr.isEmpty()) continue
+
+                    var parsedDate: java.util.Date? = null
+                    for (fmt in formatsToTry) {
+                        try { parsedDate = fmt.parse(dueStr); break } catch (e: Exception) { /* intentar siguiente */ }
+                    }
+
+                    if (parsedDate != null && parsedDate.time > System.currentTimeMillis()) {
+                        scheduleLocalReminder(context, title, parsedDate.time, desc)
+                        count++
+                        Log.d(TAG, "Recordatorio sincronizado: '$title' a las $dueStr")
+                    } else if (parsedDate != null) {
+                        Log.d(TAG, "Recordatorio ya vencido ignorado: '$title' ($dueStr)")
+                    } else {
+                        Log.w(TAG, "No se pudo parsear la fecha del recordatorio: '$dueStr'")
                     }
                 }
                 count

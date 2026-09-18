@@ -48,6 +48,9 @@ class MainActivity : AppCompatActivity() {
         checkAndRequestPermissions()
         loadSavedUrl()
 
+        // Iniciar servicio de sincronización de recordatorios en segundo plano (siempre activo)
+        YuiReminderSyncService.start(this)
+
         // Sincronizar recordatorios autónomos de la nube en segundo plano
         CoroutineScope(Dispatchers.IO).launch {
             AutonomousReminderManager.syncCloudReminders(this@MainActivity)
