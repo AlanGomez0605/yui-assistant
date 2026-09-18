@@ -142,7 +142,7 @@ class YuiAccessibilityService : AccessibilityService() {
 
             if (isKnown) {
                 Log.d(TAG, "Llamante WhatsApp REGISTRADO ('$callerName'). Yui no interviene.")
-                // Dejamos sonar normalmente sin tocar nada
+                isWhatsAppCallRinging = false
                 return@launch
             }
 
@@ -168,16 +168,17 @@ class YuiAccessibilityService : AccessibilityService() {
      * Usa el nombre que WhatsApp muestra en la notificación.
      */
     private suspend fun isCallerKnown(callerName: String): Boolean {
-        if (callerName.isBlank()) return false
+        if (callerName.isBlank()) return true
         return try {
-            val contacts = ApiClient.getContactsSync(this)
+            val contacts = ContactsSyncManager.readAllContacts(this)
+            if (contacts.isEmpty()) return true
             contacts.any { contact ->
                 val name = contact.optString("name", "").lowercase()
                 name.isNotBlank() && name.contains(callerName.lowercase().take(5))
             }
         } catch (e: Exception) {
-            Log.w(TAG, "No se pudo verificar contacto WhatsApp: ${e.message}")
-            false // Ante la duda, rechazar
+            Log.w(TAG, "No se pudo verificar contacto WhatsApp; se conserva la llamada: ${e.message}")
+            true
         }
     }
 
@@ -344,4 +345,3 @@ class YuiAccessibilityService : AccessibilityService() {
         lastDeclineActionPendingIntent = null
     }
 }
-

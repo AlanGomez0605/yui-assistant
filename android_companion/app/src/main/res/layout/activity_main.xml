@@ -67,17 +67,30 @@
         android:id="@+id/panelSettings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:background="#151922"
         android:padding="8dp"
         android:visibility="gone">
 
         <EditText
             android:id="@+id/etBackendUrl"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:layout_weight="1"
             android:hint="https://web-production-7eeaa.up.railway.app"
+            android:textColor="#F8F8F2"
+            android:textColorHint="#6272A4"
+            android:background="#060A11"
+            android:paddingHorizontal="10dp"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/etApiToken"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="6dp"
+            android:hint="API_TOKEN del servidor"
+            android:inputType="textPassword"
+            android:importantForAutofill="no"
             android:textColor="#F8F8F2"
             android:textColorHint="#6272A4"
             android:background="#060A11"
@@ -86,14 +99,14 @@
 
         <Button
             android:id="@+id/btnSaveUrl"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="40dp"
             android:text="Guardar"
             android:textSize="11sp"
             app:backgroundTint="#BD93F9"
             android:textColor="#060A11"
             android:textStyle="bold"
-            android:layout_marginStart="6dp" />
+            android:layout_marginTop="6dp" />
     </LinearLayout>
 
     <!-- Estado Rápido -->

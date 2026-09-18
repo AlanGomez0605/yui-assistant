@@ -13,11 +13,19 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false
+      - key: API_TOKEN
+        sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: DEBUG
+        value: "false"
+      - key: OWNER_TIMEZONE
+        value: "America/Mexico_City"
       - key: OWNER_NAME
         value: "Alan Jahir"
       - key: OWNER_NICKNAME
         value: "Alan"
       - key: OWNER_EMAIL
-        value: "alanjahir305@gmail.com"
+        sync: false
       - key: GEMINI_MODEL
         value: "gemini-3.5-flash-lite"

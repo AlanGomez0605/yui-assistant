@@ -1,6 +1,7 @@
 import datetime
 from typing import List, Dict, Optional, Any
 from bson import ObjectId
+from bson.errors import InvalidId
 import re
 from ..core.mongodb import mongodb_manager
 from ..core.config import get_settings
@@ -18,20 +19,29 @@ class MemoryService:
         self._db_initialized = False
 
     async def ensure_db(self):
-        if not self._db_initialized:
-            await mongodb_manager.connect()
-            self._db_initialized = True
+        if not mongodb_manager.is_connected():
+            self._db_initialized = await mongodb_manager.connect()
+        if not mongodb_manager.is_connected():
+            from ..core.mongodb import DatabaseUnavailableError
+            raise DatabaseUnavailableError("MongoDB es necesario para memoria y recordatorios.")
 
     # =========================================================================
     # RECORDATORIOS / TAREAS (100% NUBE MONGODB ATLAS)
     # =========================================================================
-    async def add_reminder(self, title: str, due_datetime: str, description: Optional[str] = None) -> Dict[str, Any]:
+    async def add_reminder(
+        self,
+        title: str,
+        due_datetime: str,
+        description: Optional[str] = None,
+        timezone: Optional[str] = None
+    ) -> Dict[str, Any]:
         await self.ensure_db()
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         reminder_data = {
             "title": title.strip(),
             "due_datetime": due_datetime.strip(),
             "description": description.strip() if description else None,
+            "timezone": timezone or settings.OWNER_TIMEZONE,
             "is_completed": False,
             "is_notified": False,
             "created_at": now_str
@@ -55,30 +65,68 @@ class MemoryService:
         await self.ensure_db()
         coll = mongodb_manager.get_collection("reminders")
         try:
-            await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_completed": True}})
-        except Exception:
-            await coll.update_one({"id": str(reminder_id)}, {"$set": {"is_completed": True}})
-        return True
+            result = await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_completed": True}})
+        except InvalidId:
+            result = await coll.update_one({"id": str(reminder_id)}, {"$set": {"is_completed": True}})
+        return result.matched_count > 0
 
     async def mark_reminder_notified(self, reminder_id: Any) -> bool:
         """Marca un recordatorio como notificado por el motor proactivo de Yui."""
         await self.ensure_db()
         coll = mongodb_manager.get_collection("reminders")
         try:
-            await coll.update_one({"_id": ObjectId(str(reminder_id))}, {"$set": {"is_notified": True, "is_completed": True}})
-        except Exception:
-            await coll.update_one({"id": str(reminder_id)}, {"$set": {"is_notified": True, "is_completed": True}})
-        return True
+            result = await coll.update_one(
+                {"_id": ObjectId(str(reminder_id))},
+                {"$set": {"is_notified": True, "dispatching": False}, "$unset": {"dispatching_at": ""}}
+            )
+        except InvalidId:
+            result = await coll.update_one(
+                {"id": str(reminder_id)},
+                {"$set": {"is_notified": True, "dispatching": False}, "$unset": {"dispatching_at": ""}}
+            )
+        return result.matched_count > 0
+
+    async def claim_reminder_notification(self, reminder_id: Any) -> bool:
+        """Obtiene un bloqueo atómico para evitar notificaciones duplicadas entre instancias."""
+        await self.ensure_db()
+        coll = mongodb_manager.get_collection("reminders")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        stale_before = now - datetime.timedelta(minutes=5)
+        query = {
+            "is_notified": False,
+            "$or": [
+                {"dispatching": False},
+                {"dispatching": {"$exists": False}},
+                {"dispatching_at": {"$exists": False}},
+                {"dispatching_at": {"$lt": stale_before}},
+            ]
+        }
+        try:
+            query["_id"] = ObjectId(str(reminder_id))
+        except InvalidId:
+            query["id"] = str(reminder_id)
+        result = await coll.update_one(query, {"$set": {"dispatching": True, "dispatching_at": now}})
+        return result.modified_count == 1
+
+    async def release_reminder_notification(self, reminder_id: Any) -> None:
+        """Libera el bloqueo si no hubo ningún cliente al cual entregar el aviso."""
+        await self.ensure_db()
+        coll = mongodb_manager.get_collection("reminders")
+        try:
+            query = {"_id": ObjectId(str(reminder_id))}
+        except InvalidId:
+            query = {"id": str(reminder_id)}
+        await coll.update_one(query, {"$set": {"dispatching": False}, "$unset": {"dispatching_at": ""}})
 
     async def delete_reminder(self, reminder_id: Any) -> bool:
         """Elimina físicamente un recordatorio de MongoDB Atlas."""
         await self.ensure_db()
         coll = mongodb_manager.get_collection("reminders")
         try:
-            await coll.delete_one({"_id": ObjectId(str(reminder_id))})
-        except Exception:
-            await coll.delete_one({"id": str(reminder_id)})
-        return True
+            result = await coll.delete_one({"_id": ObjectId(str(reminder_id))})
+        except InvalidId:
+            result = await coll.delete_one({"id": str(reminder_id)})
+        return result.deleted_count > 0
 
     async def delete_all_reminders(self) -> int:
         """Elimina físicamente TODOS los recordatorios de MongoDB Atlas."""
@@ -160,10 +208,10 @@ class MemoryService:
         await self.ensure_db()
         coll = mongodb_manager.get_collection("memories")
         try:
-            await coll.delete_one({"_id": ObjectId(str(memory_id))})
-        except Exception:
-            await coll.delete_one({"id": str(memory_id)})
-        return True
+            result = await coll.delete_one({"_id": ObjectId(str(memory_id))})
+        except InvalidId:
+            result = await coll.delete_one({"id": str(memory_id)})
+        return result.deleted_count > 0
 
     async def delete_memory_by_topic(self, topic: str) -> int:
         """Elimina recuerdos por palabra clave de tema."""
@@ -171,9 +219,6 @@ class MemoryService:
         coll = mongodb_manager.get_collection("memories")
         res = await coll.delete_many({"topic_keywords": topic})
         return res.deleted_count
-
-    async def save_message(self, role: str, content: str, session_id: str = "default") -> None:
-        pass
 
     async def save_conversation_exchange(self, user_message: str, assistant_reply: str, session_id: str = "default") -> None:
         """Guarda permanentemente cada intercambio de conversación con marcas de tiempo íntegras."""

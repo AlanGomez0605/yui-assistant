@@ -16,12 +16,13 @@ object ApiClient {
     private const val TAG = "ApiClient"
     private const val PREFS_NAME = "yui_prefs"
     private const val KEY_BACKEND_URL = "backend_url"
+    private const val KEY_API_TOKEN = "api_token"
     const val DEFAULT_URL = "https://web-production-7eeaa.up.railway.app"
 
     fun getBackendUrl(context: Context): String {
         val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val rawUrl = prefs.getString(KEY_BACKEND_URL, DEFAULT_URL) ?: DEFAULT_URL
-        if (rawUrl.contains("onrender.com") || rawUrl.contains("tu-app") || rawUrl.isBlank() || !rawUrl.startsWith("http")) {
+        if (rawUrl.isBlank() || !rawUrl.startsWith("https://")) {
             setBackendUrl(context, DEFAULT_URL)
             return DEFAULT_URL
         }
@@ -30,8 +31,28 @@ object ApiClient {
 
     fun setBackendUrl(context: Context, url: String) {
         val cleanUrl = url.replace(" ", "").replace("\n", "").replace("\r", "").trim().trimEnd('/')
+        require(cleanUrl.startsWith("https://")) {
+            "La URL debe usar HTTPS."
+        }
         val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_BACKEND_URL, cleanUrl).apply()
+    }
+
+    fun getApiToken(context: Context): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_API_TOKEN, "")?.trim().orEmpty()
+    }
+
+    fun setApiToken(context: Context, token: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_API_TOKEN, token.trim()).apply()
+    }
+
+    fun authorize(context: Context, connection: HttpURLConnection) {
+        val token = getApiToken(context)
+        if (token.isNotBlank()) {
+            connection.setRequestProperty("Authorization", "Bearer $token")
+        }
     }
 
     suspend fun syncContacts(context: Context, contactsJsonArray: JSONArray): Pair<Boolean, String> = withContext(Dispatchers.IO) {
@@ -47,6 +68,7 @@ object ApiClient {
                 instanceFollowRedirects = true
                 connectTimeout = 20000
                 readTimeout = 20000
+                authorize(context, this)
             }
 
             val payload = JSONObject().apply {
@@ -91,6 +113,7 @@ object ApiClient {
                 instanceFollowRedirects = true
                 connectTimeout = 8000
                 readTimeout = 8000
+                authorize(context, this)
             }
 
             val payload = JSONObject().apply {
@@ -145,11 +168,15 @@ object ApiClient {
                 setRequestProperty("Accept", "application/json")
                 connectTimeout = 6000
                 readTimeout = 6000
+                authorize(context, this)
             }
             if (conn.responseCode in 200..299) {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
-                val json = org.json.JSONObject(text)
-                val contacts = json.optJSONArray("contacts") ?: JSONArray()
+                val contacts = try {
+                    JSONArray(text)
+                } catch (_: Exception) {
+                    JSONObject(text).optJSONArray("contacts") ?: JSONArray()
+                }
                 contactsCache = contacts
                 contactsCacheTime = now
                 contacts
@@ -170,4 +197,3 @@ object ApiClient {
         contactsCacheTime = 0L
     }
 }
-

@@ -69,7 +69,10 @@ class CallInterceptorReceiver : BroadcastReceiver() {
                 isCurrentlyRinging = true
                 currentRingingNumber = incomingNumber
 
-                handleIncomingCall(context, incomingNumber)
+                val pendingResult = goAsync()
+                handleIncomingCall(context.applicationContext, incomingNumber) {
+                    pendingResult.finish()
+                }
             }
 
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
@@ -93,25 +96,27 @@ class CallInterceptorReceiver : BroadcastReceiver() {
      * - Conocido  → no hace nada (deja sonar)
      * - Desconocido → cuelga a los 5 segundos
      */
-    private fun handleIncomingCall(context: Context, number: String?) {
+    private fun handleIncomingCall(context: Context, number: String?, onComplete: () -> Unit) {
         val phoneNumber = number ?: ""
 
         CoroutineScope(Dispatchers.IO).launch {
-            val isKnown = isNumberInContacts(context, phoneNumber)
+            try {
+                val isKnown = isNumberInContacts(context, phoneNumber)
 
-            if (isKnown) {
-                Log.d(TAG, "Número REGISTRADO detectado ($phoneNumber). Yui no interviene.")
-                // No hacemos nada: dejamos que suene normal
-                return@launch
-            }
+                if (isKnown) {
+                    Log.d(TAG, "Número registrado o no verificable ($phoneNumber). Yui no interviene.")
+                    return@launch
+                }
 
-            // Número desconocido → esperar 5s y colgar si sigue timbrando
-            Log.d(TAG, "Número DESCONOCIDO ($phoneNumber). Colgando en ${UNKNOWN_HANG_DELAY_MS / 1000}s...")
-            delay(UNKNOWN_HANG_DELAY_MS)
+                Log.d(TAG, "Número desconocido ($phoneNumber). Verificando durante ${UNKNOWN_HANG_DELAY_MS / 1000}s...")
+                delay(UNKNOWN_HANG_DELAY_MS)
 
-            if (isCurrentlyRinging && currentRingingNumber == phoneNumber) {
-                Log.d(TAG, "Colgando llamada desconocida: $phoneNumber")
-                rejectCall(context)
+                if (isCurrentlyRinging && currentRingingNumber == phoneNumber) {
+                    Log.d(TAG, "Colgando llamada desconocida: $phoneNumber")
+                    rejectCall(context)
+                }
+            } finally {
+                onComplete()
             }
         }
     }
@@ -121,11 +126,12 @@ class CallInterceptorReceiver : BroadcastReceiver() {
      * Usa el ApiClient para consultar rápidamente.
      */
     private suspend fun isNumberInContacts(context: Context, phoneNumber: String): Boolean {
-        if (phoneNumber.isBlank()) return false
+        if (phoneNumber.isBlank()) return true
         return try {
             // Normaliza: elimina espacios y guiones para comparar solo dígitos
             val normalized = phoneNumber.replace(Regex("[^0-9+]"), "")
-            val contacts = ApiClient.getContactsSync(context)
+            val contacts = ContactsSyncManager.readAllContacts(context)
+            if (contacts.isEmpty()) return true
             contacts.any { contact ->
                 val contactPhone = contact.optString("phone", "").replace(Regex("[^0-9+]"), "")
                 contactPhone.isNotBlank() && (
@@ -134,8 +140,8 @@ class CallInterceptorReceiver : BroadcastReceiver() {
                 )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "No se pudo consultar contactos. Asumiendo desconocido: ${e.message}")
-            false // Si hay error de red, asume desconocido (lado seguro)
+            Log.w(TAG, "No se pudieron consultar contactos. La llamada se conserva: ${e.message}")
+            true
         }
     }
 

@@ -12,6 +12,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var etBackendUrl: EditText
+    private lateinit var etApiToken: EditText
     private lateinit var btnSaveUrl: Button
     private lateinit var btnStartOverlay: Button
     private lateinit var btnSyncContacts: Button
@@ -59,6 +61,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun initViews() {
         etBackendUrl = findViewById(R.id.etBackendUrl)
+        etApiToken = findViewById(R.id.etApiToken)
         btnSaveUrl = findViewById(R.id.btnSaveUrl)
         btnStartOverlay = findViewById(R.id.btnStartOverlay)
         btnSyncContacts = findViewById(R.id.btnSyncContacts)
@@ -80,10 +83,15 @@ class MainActivity : AppCompatActivity() {
         btnSaveUrl.setOnClickListener {
             val url = etBackendUrl.text.toString().trim()
             if (url.isNotEmpty()) {
-                ApiClient.setBackendUrl(this, url)
-                Toast.makeText(this, "URL de Yui Cloud guardada", Toast.LENGTH_SHORT).show()
-                webView.loadUrl(url)
-                panelSettings.visibility = android.view.View.GONE
+                try {
+                    ApiClient.setBackendUrl(this, url)
+                    ApiClient.setApiToken(this, etApiToken.text.toString())
+                    Toast.makeText(this, "Conexion segura guardada", Toast.LENGTH_SHORT).show()
+                    webView.loadUrl(ApiClient.getBackendUrl(this))
+                    panelSettings.visibility = android.view.View.GONE
+                } catch (error: IllegalArgumentException) {
+                    Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
+                }
             }
         }
 
@@ -102,14 +110,26 @@ class MainActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.mediaPlaybackRequiresUserGesture = false
         settings.cacheMode = WebSettings.LOAD_DEFAULT
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-        webView.webViewClient = WebViewClient()
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val target = request?.url ?: return true
+                val allowed = Uri.parse(ApiClient.getBackendUrl(this@MainActivity))
+                return target.scheme != allowed.scheme ||
+                    target.host != allowed.host ||
+                    target.port != allowed.port
+            }
+        }
         webView.addJavascriptInterface(YuiAndroidBridge(this), "AndroidYuiBridge")
     }
 
     private fun loadSavedUrl() {
         val savedUrl = ApiClient.getBackendUrl(this)
         etBackendUrl.setText(savedUrl)
+        etApiToken.setText(ApiClient.getApiToken(this))
         webView.loadUrl(savedUrl)
     }
 

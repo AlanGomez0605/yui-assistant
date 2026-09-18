@@ -1,12 +1,11 @@
 package com.yui.assistant
 
 import android.util.Log
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.Socket
 import java.net.URI
 import java.security.SecureRandom
+import java.security.MessageDigest
 import java.util.Base64
 import javax.net.ssl.SSLSocketFactory
 
@@ -20,6 +19,7 @@ import javax.net.ssl.SSLSocketFactory
  */
 class NativeWebSocketClient(
     private val uri: URI,
+    private val apiToken: String = "",
     private val onMessage: (String) -> Unit
 ) {
     companion object {
@@ -66,22 +66,31 @@ class NativeWebSocketClient(
             append("Connection: Upgrade\r\n")
             append("Sec-WebSocket-Key: $key\r\n")
             append("Sec-WebSocket-Version: 13\r\n")
+            if (apiToken.isNotBlank()) append("Authorization: Bearer $apiToken\r\n")
             append("\r\n")
         }
         outputStream!!.write(handshake.toByteArray(Charsets.UTF_8))
         outputStream!!.flush()
 
         // Leer respuesta HTTP del servidor
-        val reader = BufferedReader(InputStreamReader(inputStream))
-        val responseLine = reader.readLine() ?: throw Exception("Sin respuesta del servidor WebSocket")
+        val responseHeaders = readHttpHeaders(inputStream)
+        val headerLines = responseHeaders.split("\r\n")
+        val responseLine = headerLines.firstOrNull() ?: throw Exception("Sin respuesta del servidor WebSocket")
         if (!responseLine.contains("101")) {
             throw Exception("WebSocket handshake fallido: $responseLine")
         }
 
-        // Consumir headers restantes
-        var line = reader.readLine()
-        while (!line.isNullOrEmpty()) {
-            line = reader.readLine()
+        val acceptHeader = headerLines.firstOrNull {
+            it.startsWith("Sec-WebSocket-Accept:", ignoreCase = true)
+        }?.substringAfter(":")?.trim()
+
+        val expectedAccept = base64(
+            MessageDigest.getInstance("SHA-1")
+                .digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray(Charsets.US_ASCII))
+        )
+        if (acceptHeader != expectedAccept) {
+            socket?.close()
+            throw Exception("Respuesta WebSocket no valida")
         }
 
         isConnected = true
@@ -105,6 +114,36 @@ class NativeWebSocketClient(
         }.apply {
             isDaemon = true
             start()
+        }
+    }
+
+    private fun base64(bytes: ByteArray): String {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            Base64.getEncoder().encodeToString(bytes)
+        } else {
+            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        }
+    }
+
+    private fun readHttpHeaders(input: java.io.InputStream): String {
+        val bytes = java.io.ByteArrayOutputStream()
+        var matched = 0
+        val delimiter = byteArrayOf(13, 10, 13, 10)
+        while (bytes.size() < 16 * 1024) {
+            val value = input.read()
+            if (value == -1) throw Exception("Respuesta HTTP incompleta")
+            bytes.write(value)
+            matched = if (value.toByte() == delimiter[matched]) matched + 1 else if (value == 13) 1 else 0
+            if (matched == delimiter.size) return bytes.toString(Charsets.US_ASCII.name())
+        }
+        throw Exception("Cabeceras WebSocket demasiado grandes")
+    }
+
+    fun close() {
+        isConnected = false
+        try {
+            socket?.close()
+        } catch (_: Exception) {
         }
     }
 

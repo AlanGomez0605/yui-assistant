@@ -29,8 +29,15 @@ object AutonomousReminderManager {
         val isSynced: Boolean = false
     )
 
-    fun scheduleLocalReminder(context: Context, title: String, triggerMillis: Long, description: String = ""): Int {
-        val reminderId = (System.currentTimeMillis() % 100000).toInt()
+    fun scheduleLocalReminder(
+        context: Context,
+        title: String,
+        triggerMillis: Long,
+        description: String = "",
+        stableKey: String? = null
+    ): Int {
+        val reminderId = stableKey?.hashCode()?.and(0x7fffffff)
+            ?: (System.currentTimeMillis() % 100000).toInt()
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
         val intent = Intent(context, AutonomousReminderReceiver::class.java).apply {
@@ -47,7 +54,9 @@ object AutonomousReminderManager {
         )
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
             } else {
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
@@ -73,8 +82,13 @@ object AutonomousReminderManager {
             put("description", reminder.description)
             put("is_synced", reminder.isSynced)
         }
-        array.put(obj)
-        prefs.edit().putString(KEY_REMINDERS_JSON, array.toString()).apply()
+        val updated = JSONArray()
+        for (i in 0 until array.length()) {
+            val existing = array.optJSONObject(i) ?: continue
+            if (existing.optInt("id") != reminder.id) updated.put(existing)
+        }
+        updated.put(obj)
+        prefs.edit().putString(KEY_REMINDERS_JSON, updated.toString()).apply()
     }
 
     fun getLocalReminders(context: Context): List<LocalReminder> {
@@ -110,6 +124,7 @@ object AutonomousReminderManager {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 10000
+                ApiClient.authorize(context, this)
             }
 
             if (conn.responseCode in 200..299) {
@@ -129,12 +144,19 @@ object AutonomousReminderManager {
                     java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()),
                     java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
                 )
+                formatsToTry.forEach { it.isLenient = false }
 
                 for (i in 0 until jsonArray.length()) {
                     val item = jsonArray.getJSONObject(i)
                     val title = item.optString("title", "Recordatorio de Yui")
                     val dueStr = item.optString("due_datetime", "")
                     val desc = item.optString("description", "")
+                    val cloudId = item.optString("id", "$title|$dueStr")
+                    if (item.optBoolean("is_notified", false)) continue
+                    val reminderTimeZone = java.util.TimeZone.getTimeZone(
+                        item.optString("timezone", java.util.TimeZone.getDefault().id)
+                    )
+                    formatsToTry.forEach { it.timeZone = reminderTimeZone }
 
                     if (dueStr.isEmpty()) continue
 
@@ -144,7 +166,7 @@ object AutonomousReminderManager {
                     }
 
                     if (parsedDate != null && parsedDate.time > System.currentTimeMillis()) {
-                        scheduleLocalReminder(context, title, parsedDate.time, desc)
+                        scheduleLocalReminder(context, title, parsedDate.time, desc, cloudId)
                         count++
                         Log.d(TAG, "Recordatorio sincronizado: '$title' a las $dueStr")
                     } else if (parsedDate != null) {

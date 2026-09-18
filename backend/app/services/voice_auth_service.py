@@ -21,7 +21,7 @@ class VoiceAuthService:
             "nickname": settings.OWNER_NICKNAME,
             "role": "owner",
             "is_authorized": True,
-            "voiceprint_status": "registered",
+            "voiceprint_status": "metadata_only",
             "created_at": now
         }
 

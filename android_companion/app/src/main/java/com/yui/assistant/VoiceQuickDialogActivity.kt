@@ -175,6 +175,7 @@ class VoiceQuickDialogActivity : Activity() {
                     doOutput = true
                     connectTimeout = 12000
                     readTimeout = 12000
+                    ApiClient.authorize(this@VoiceQuickDialogActivity, this)
                 }
 
                 val payload = JSONObject().apply {

@@ -26,6 +26,12 @@ class AutonomousReminderReceiver : BroadcastReceiver() {
         val desc = intent.getStringExtra(EXTRA_DESCRIPTION) ?: "Tienes una tarea pendiente, Alan."
         val reminderId = intent.getIntExtra(EXTRA_REMINDER_ID, 100)
 
+        val deliveryPrefs = context.getSharedPreferences("yui_delivered_reminders", Context.MODE_PRIVATE)
+        val deliveryKey = "delivered_$reminderId"
+        val now = System.currentTimeMillis()
+        if (now - deliveryPrefs.getLong(deliveryKey, 0L) < 10 * 60_000L) return
+        deliveryPrefs.edit().putLong(deliveryKey, now).apply()
+
         // WakeLock para despertar el procesador de inmediato
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(

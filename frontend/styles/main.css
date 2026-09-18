@@ -747,3 +747,35 @@ body {
     flex-shrink: 0;
   }
 }
+.auth-box {
+    max-width: 430px;
+}
+
+.auth-error {
+    min-height: 1.25rem;
+    color: #ff5555;
+    margin: 0.75rem 0;
+}
+
+.auth-submit {
+    width: 100%;
+    border-radius: 8px;
+    font-size: 0.95rem;
+}
+
+.sao-message-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.sao-action-btn {
+    cursor: pointer;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--accent-cyan);
+    border-radius: 8px;
+    color: var(--accent-cyan);
+    background: rgba(0, 217, 255, 0.1);
+    font: inherit;
+}

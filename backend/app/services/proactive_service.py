@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import List, Dict, Any, Set, Optional
 from fastapi import WebSocket
 from .memory_service import memory_service
@@ -24,17 +25,20 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
             print(f"[PROACTIVE WS] Cliente desconectado. Clientes activos: {len(self.active_connections)}")
 
-    async def broadcast_json(self, data: Dict[str, Any]):
+    async def broadcast_json(self, data: Dict[str, Any]) -> int:
         dead_connections = []
+        delivered = 0
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(data)
+                delivered += 1
             except Exception as e:
                 print(f"[PROACTIVE WS] Error enviando a cliente: {e}")
                 dead_connections.append(connection)
 
         for dead in dead_connections:
             self.disconnect(dead)
+        return delivered
 
 connection_manager = ConnectionManager()
 
@@ -63,7 +67,7 @@ class ProactiveService:
                 print(f"[YUI PROACTIVE] Error en ciclo de recordatorios: {e}")
             await asyncio.sleep(3)
 
-    def parse_due_timestamp(self, due_str: str, client_timezone_offset_hours: int = -6) -> Optional[float]:
+    def parse_due_timestamp(self, due_str: str, timezone_name: Optional[str] = None) -> Optional[float]:
         """
         Convierte cualquier formato de fecha/hora de recordatorio a timestamp Unix UTC real.
         Por defecto usa UTC-6 (Horario estándar de México / Alan).
@@ -73,23 +77,39 @@ class ProactiveService:
 
         due_str = due_str.strip()
         now_utc = datetime.datetime.now(datetime.timezone.utc)
-        tz_user = datetime.timezone(datetime.timedelta(hours=client_timezone_offset_hours))
+        try:
+            tz_user = ZoneInfo(timezone_name or settings.OWNER_TIMEZONE)
+        except ZoneInfoNotFoundError:
+            tz_user = datetime.timezone.utc
         now_user = now_utc.astimezone(tz_user)
 
+        try:
+            parsed_iso = datetime.datetime.fromisoformat(due_str.replace("Z", "+00:00"))
+            if parsed_iso.tzinfo is not None:
+                return parsed_iso.timestamp()
+        except ValueError:
+            pass
+
         # 1. Formato completo 'YYYY-MM-DD HH:MM' o 'YYYY-MM-DD HH:MM:SS'
-        match_full = re.match(r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?', due_str)
+        match_full = re.fullmatch(r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?', due_str)
         if match_full:
             year, month, day, hour, minute = map(int, match_full.groups()[:5])
             second = int(match_full.group(6)) if match_full.group(6) else 0
-            dt_user = datetime.datetime(year, month, day, hour, minute, second, tzinfo=tz_user)
-            return dt_user.timestamp()
+            try:
+                dt_user = datetime.datetime(year, month, day, hour, minute, second, tzinfo=tz_user)
+                return dt_user.timestamp()
+            except ValueError:
+                return None
 
         # 2. Formato de hora solo 'HH:MM am/pm' o 'HH:MM'
-        match_time = re.match(r'(\d{1,2}):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)?', due_str, re.IGNORECASE)
+        match_time = re.fullmatch(r'(\d{1,2}):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)?', due_str, re.IGNORECASE)
         if match_time:
             hour = int(match_time.group(1))
             minute = int(match_time.group(2))
             ampm = match_time.group(3)
+
+            if minute > 59 or (ampm and not 1 <= hour <= 12) or (not ampm and hour > 23):
+                return None
 
             if ampm:
                 ampm = ampm.lower().replace(".", "")
@@ -125,7 +145,7 @@ class ProactiveService:
             if is_notified:
                 continue
 
-            target_ts = self.parse_due_timestamp(due_str, client_timezone_offset_hours=-6)
+            target_ts = self.parse_due_timestamp(due_str, r.get("timezone"))
             if target_ts is None:
                 continue
 
@@ -145,6 +165,11 @@ class ProactiveService:
         description = reminder.get("description", "")
         owner_nick = settings.OWNER_NICKNAME
 
+        if not connection_manager.active_connections:
+            return
+        if not await memory_service.claim_reminder_notification(rem_id):
+            return
+
         print(f"\n⚡ [YUI AUTÓNOMA] Disparando recordatorio a la hora exacta: '{title}' para {owner_nick}!")
 
         # 1. Mensaje espontáneo y dulce de Yui
@@ -152,9 +177,6 @@ class ProactiveService:
         if description:
             message_text += f" ({description})"
         message_text += " ¡Aquí estoy para recordártelo!"
-
-        # 2. Marcar de inmediato como notificado en la base de datos para evitar dobles envíos
-        await memory_service.mark_reminder_notified(rem_id)
 
         # 3. Guardar en el historial de conversación para que aparezca en chat
         try:
@@ -183,6 +205,10 @@ class ProactiveService:
             "audio_base64": audio_base64
         }
 
-        await connection_manager.broadcast_json(payload)
+        delivered = await connection_manager.broadcast_json(payload)
+        if delivered:
+            await memory_service.mark_reminder_notified(rem_id)
+        else:
+            await memory_service.release_reminder_notification(rem_id)
 
 proactive_service = ProactiveService()

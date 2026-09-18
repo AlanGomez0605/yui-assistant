@@ -15,9 +15,8 @@ class YuiApp {
         this.initSpeechRecognition();
         this.initServiceWorker();
         this.initNotifications();
-        this.initWebSocketLive();
         this.bindEvents();
-        this.loadSystemStatus();
+        this.initAuthentication();
         this.sendInitialGreeting();
     }
 
@@ -48,6 +47,10 @@ class YuiApp {
         this.simPhoneNumber = document.getElementById('simPhoneNumber');
         this.btnSimulateCall = document.getElementById('btnSimulateCall');
         this.simulationResult = document.getElementById('simulationResult');
+        this.authModal = document.getElementById('authModal');
+        this.authTokenInput = document.getElementById('authTokenInput');
+        this.authSubmitBtn = document.getElementById('authSubmitBtn');
+        this.authError = document.getElementById('authError');
     }
 
     initServiceWorker() {
@@ -70,6 +73,76 @@ class YuiApp {
                 }
             }, { once: true });
         }
+    }
+
+    async initAuthentication() {
+        try {
+            const response = await fetch('/api/auth/status', { credentials: 'same-origin' });
+            const status = await response.json();
+            if (status.authenticated) {
+                this.startAuthenticatedServices();
+                return;
+            }
+            this.showAuthModal(
+                status.configured ? '' : 'El servidor debe configurar API_TOKEN antes de aceptar conexiones.'
+            );
+        } catch (error) {
+            this.showAuthModal('No se pudo comprobar la seguridad del servidor.');
+        }
+    }
+
+    startAuthenticatedServices() {
+        if (this.authenticatedServicesStarted) return;
+        this.authenticatedServicesStarted = true;
+        this.authModal?.classList.remove('active');
+        this.initWebSocketLive();
+        this.loadSystemStatus();
+    }
+
+    showAuthModal(message = '') {
+        this.authModal?.classList.add('active');
+        if (this.authError) this.authError.textContent = message;
+        setTimeout(() => this.authTokenInput?.focus(), 0);
+    }
+
+    async submitAuthentication() {
+        const token = this.authTokenInput?.value.trim() || '';
+        if (!token) {
+            this.showAuthModal('Introduce el token de acceso.');
+            return;
+        }
+        this.authSubmitBtn.disabled = true;
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || 'No fue posible iniciar sesion.');
+            this.authTokenInput.value = '';
+            this.startAuthenticatedServices();
+        } catch (error) {
+            this.showAuthModal(error.message);
+        } finally {
+            this.authSubmitBtn.disabled = false;
+        }
+    }
+
+    async apiFetch(url, options = {}) {
+        const response = await fetch(url, { ...options, credentials: 'same-origin' });
+        if (response.status === 401) {
+            this.authenticatedServicesStarted = false;
+            this.ws?.close();
+            this.showAuthModal('La sesion expiro. Introduce nuevamente el token.');
+            throw new Error('Authentication required');
+        }
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || ('HTTP ' + response.status));
+        }
+        return response;
     }
 
     // ==========================================================================
@@ -114,7 +187,9 @@ class YuiApp {
                 console.warn('🌸 [YUI WS] Conexión perdida. Reconectando en 3s...');
                 if (this.pingInterval) clearInterval(this.pingInterval);
                 clearTimeout(this.wsReconnectTimeout);
-                this.wsReconnectTimeout = setTimeout(() => this.initWebSocketLive(), 3000);
+                if (this.authenticatedServicesStarted) {
+                    this.wsReconnectTimeout = setTimeout(() => this.initWebSocketLive(), 3000);
+                }
             };
 
             this.ws.onerror = (err) => {
@@ -153,7 +228,7 @@ class YuiApp {
                             icon: "/assets/yui_avatar.jpg",
                             badge: "/assets/yui_avatar.jpg",
                             vibrate: [200, 100, 200, 100, 400],
-                            tag: 'yui-reminder-' + Date.now(),
+                            tag: 'yui-reminder-' + (data.reminder_id || data.title),
                             requireInteraction: true
                         });
                     });
@@ -237,6 +312,11 @@ class YuiApp {
         if (this.btnSimulateCall) {
             this.btnSimulateCall.addEventListener('click', () => this.handleSimulateCall());
         }
+
+        this.authSubmitBtn?.addEventListener('click', () => this.submitAuthentication());
+        this.authTokenInput?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') this.submitAuthentication();
+        });
         
         document.querySelectorAll('.sao-modal-close').forEach(btn => {
             btn.addEventListener('click', () => this.closeModals());
@@ -252,7 +332,7 @@ class YuiApp {
 
     async loadSystemStatus() {
         try {
-            const res = await fetch('/api/status');
+            const res = await this.apiFetch('/api/status');
             const data = await res.json();
             if (data.active_reminders_count !== undefined) {
                 this.remindersCountEl.innerText = data.active_reminders_count;
@@ -286,12 +366,12 @@ class YuiApp {
         const timeData = this.getClientTimePayload();
 
         try {
-            const res = await fetch('/api/chat', {
+            const res = await this.apiFetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: text,
-                    history: this.history,
+                    history: this.history.slice(-40),
                     client_time: timeData.client_time,
                     client_timezone: timeData.client_timezone
                 })
@@ -303,11 +383,12 @@ class YuiApp {
             this.appendMessage('assistant', reply);
             this.history.push({ role: 'user', content: text });
             this.history.push({ role: 'assistant', content: reply });
+            if (this.history.length > 40) this.history = this.history.slice(-40);
 
             window.saoAudio?.playMessageChime();
 
             // Reproducir voz
-            this.speakReply(reply);
+            this.speakReply(this.stripActionTags(reply));
             this.loadSystemStatus();
 
         } catch (error) {
@@ -330,7 +411,7 @@ class YuiApp {
         if (role === 'assistant') {
             const waMatch = text.match(/\[\[SEND_WHATSAPP:(.+?):(.*?)\]\]/i);
             if (waMatch) {
-                const target = waMatch[1].trim();
+                const target = waMatch[1].trim().replace(/[<>"'&]/g, '');
                 const msg = waMatch[2].trim();
                 let phone = target.replace(/\D/g, '');
                 
@@ -352,19 +433,13 @@ class YuiApp {
                     </div>
                 `;
 
-                if (window.AndroidYuiBridge) {
-                    window.AndroidYuiBridge.sendWhatsApp(phone || target, msg);
-                } else {
-                    try { window.open(waUrl, '_blank'); } catch (e) {}
-                }
+                // La accion solo se ejecuta cuando el usuario pulsa el enlace visible.
             }
 
             const appMatch = text.match(/\[\[OPEN_APP:(.+?)\]\]/i);
             if (appMatch) {
                 const appName = appMatch[1].trim().toLowerCase();
-                if (window.AndroidYuiBridge) {
-                    window.AndroidYuiBridge.openApplication(appName);
-                } else if (appName === 'whatsapp') {
+                if (!window.AndroidYuiBridge && appName === 'whatsapp') {
                     actionHtml += `
                         <div style="margin-top: 10px;">
                             <a href="https://web.whatsapp.com/" target="_blank" class="sao-action-btn" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: rgba(37, 211, 102, 0.2); border: 1px solid #25d366; border-radius: 8px; color: #25d366; text-decoration: none; font-weight: bold; font-size: 0.85rem;">
@@ -372,35 +447,20 @@ class YuiApp {
                             </a>
                         </div>
                     `;
-                    try { window.open('https://web.whatsapp.com/', '_blank'); } catch (e) {}
                 }
             }
 
             const alarmMatch = text.match(/\[\[SET_ALARM:(\d+):(\d+):?(.*?)\]\]/i);
-            if (alarmMatch && window.AndroidYuiBridge) {
-                window.AndroidYuiBridge.setSystemAlarm(
-                    parseInt(alarmMatch[1]),
-                    parseInt(alarmMatch[2]),
-                    alarmMatch[3]?.trim() || "Alarma de Yui"
-                );
-            }
+            // Alarmas y calendario requieren confirmacion en la interfaz nativa.
 
             const calMatch = text.match(/\[\[CALENDAR_EVENT:(.+?):(\d+):(\d+):?(.*?)\]\]/i);
-            if (calMatch && window.AndroidYuiBridge) {
-                window.AndroidYuiBridge.createCalendarEvent(
-                    calMatch[1].trim(),
-                    calMatch[4]?.trim() || "Recordatorio de Yui",
-                    parseInt(calMatch[2]),
-                    parseInt(calMatch[3])
-                );
-            }
         }
 
         // Limpiar etiquetas de comando del texto visible
-        const cleanText = text.replace(/\[\[.*?\]\]/g, '').trim();
+        const cleanText = this.stripActionTags(text);
 
         // Formatear negritas
-        const formattedText = cleanText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        const formattedText = this.escapeHtml(cleanText).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
         msgDiv.innerHTML = `
             <div class="sao-msg-avatar">${avatarIcon}</div>
@@ -415,6 +475,16 @@ class YuiApp {
         this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
     }
 
+    stripActionTags(text) {
+        return String(text || '').replace(/\[\[.*?\]\]/g, '').trim();
+    }
+
+    escapeHtml(text) {
+        return String(text ?? '').replace(/[&<>"']/g, (char) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+        })[char]);
+    }
+
     // ==========================================================================
     // VOZ & AUDIO
     // ==========================================================================
@@ -423,7 +493,7 @@ class YuiApp {
         this.setAvatarState('speaking');
 
         try {
-            const res = await fetch('/api/voice/speak', {
+            const res = await this.apiFetch('/api/voice/speak', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: text })
@@ -513,7 +583,7 @@ class YuiApp {
         this.modalBodyReminders.innerHTML = '<p class="sao-card-text">Consultando base de datos en la nube...</p>';
 
         try {
-            const res = await fetch('/api/reminders');
+            const res = await this.apiFetch('/api/reminders');
             const reminders = await res.json();
             if (reminders.length === 0) {
                 this.modalBodyReminders.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No tienes recordatorios pendientes en la base de datos.</p>';
@@ -531,8 +601,8 @@ class YuiApp {
             const listHtml = reminders.map(r => `
                 <div class="sao-card-item" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div class="sao-card-text">📌 <strong>${r.title}</strong></div>
-                        <div class="sao-card-sub">Para: ${r.due_datetime} ${r.description ? '• ' + r.description : ''}</div>
+                        <div class="sao-card-text">📌 <strong>${this.escapeHtml(r.title)}</strong></div>
+                        <div class="sao-card-sub">Para: ${this.escapeHtml(r.due_datetime)} ${r.description ? '• ' + this.escapeHtml(r.description) : ''}</div>
                     </div>
                     <button class="btn-del-reminder" data-id="${r.id}" style="background: transparent; border: none; color: var(--accent-pink); font-size: 1.1rem; cursor: pointer; padding: 0.3rem;" title="Eliminar de la BD">
                         🗑️
@@ -545,7 +615,7 @@ class YuiApp {
             // Vincular eventos de eliminación
             document.getElementById('btnDeleteAllReminders')?.addEventListener('click', async () => {
                 if (confirm("¿Seguro que deseas eliminar todos los recordatorios de la base de datos?")) {
-                    await fetch('/api/reminders', { method: 'DELETE' });
+                    await this.apiFetch('/api/reminders', { method: 'DELETE' });
                     this.openRemindersModal();
                     this.loadSystemStatus();
                 }
@@ -554,7 +624,7 @@ class YuiApp {
             document.querySelectorAll('.btn-del-reminder').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const id = btn.getAttribute('data-id');
-                    await fetch(`/api/reminders/${id}`, { method: 'DELETE' });
+                    await this.apiFetch(`/api/reminders/${encodeURIComponent(id)}`, { method: 'DELETE' });
                     this.openRemindersModal();
                     this.loadSystemStatus();
                 });
@@ -571,7 +641,7 @@ class YuiApp {
         this.modalBodyMemories.innerHTML = '<p class="sao-card-text">Consultando recuerdos en MongoDB Atlas...</p>';
 
         try {
-            const res = await fetch('/api/memories');
+            const res = await this.apiFetch('/api/memories');
             const memories = await res.json();
             if (memories.length === 0) {
                 this.modalBodyMemories.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">Aún no hay recuerdos guardados.</p>';
@@ -581,7 +651,7 @@ class YuiApp {
             this.modalBodyMemories.innerHTML = memories.map(m => `
                 <div class="sao-card-item" style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="flex: 1;">
-                        <div class="sao-card-text">🧠 ${m.content}</div>
+                        <div class="sao-card-text">🧠 ${this.escapeHtml(m.content)}</div>
                     </div>
                     <button class="btn-del-memory" data-id="${m.id}" style="background: transparent; border: none; color: var(--accent-pink); font-size: 1.1rem; cursor: pointer; padding: 0.3rem;" title="Eliminar recuerdo de la BD">
                         🗑️
@@ -592,7 +662,7 @@ class YuiApp {
             document.querySelectorAll('.btn-del-memory').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const id = btn.getAttribute('data-id');
-                    await fetch(`/api/memories/${id}`, { method: 'DELETE' });
+                    await this.apiFetch(`/api/memories/${encodeURIComponent(id)}`, { method: 'DELETE' });
                     this.openMemoriesModal();
                 });
             });
@@ -609,8 +679,9 @@ class YuiApp {
         this.modalBodyContacts.innerHTML = '<p class="sao-card-text">Cargando libreta de contactos...</p>';
 
         try {
-            const res = await fetch('/api/contacts');
+            const res = await this.apiFetch('/api/contacts');
             const contacts = await res.json();
+            this.cachedContacts = Array.isArray(contacts) ? contacts : [];
             if (!contacts || contacts.length === 0) {
                 this.modalBodyContacts.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No hay contactos guardados todavía. Agrega uno arriba o sincroniza desde la App de Android.</p>';
                 return;
@@ -624,8 +695,8 @@ class YuiApp {
             this.modalBodyContacts.innerHTML = contacts.map(c => `
                 <div class="sao-card-item contact-item-row" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div class="sao-card-text">👤 <strong>${c.name}</strong> ${c.is_vip ? '⭐ VIP' : ''}</div>
-                        <div class="sao-card-sub">📱 ${c.phone} • ${c.relationship || 'contacto'}</div>
+                        <div class="sao-card-text">👤 <strong>${this.escapeHtml(c.name)}</strong> ${c.is_vip ? '⭐ VIP' : ''}</div>
+                        <div class="sao-card-sub">📱 ${this.escapeHtml(c.phone)} • ${this.escapeHtml(c.relationship || 'contacto')}</div>
                     </div>
                     <span style="font-size: 0.8rem; color: var(--accent-green); background: rgba(80, 250, 123, 0.1); padding: 0.2rem 0.5rem; border-radius: 4px;">Permitido</span>
                 </div>
@@ -643,7 +714,7 @@ class YuiApp {
 
         window.saoAudio?.playClick();
         try {
-            await fetch('/api/contacts', {
+            await this.apiFetch('/api/contacts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, phone, relationship: "familiar" })
@@ -662,7 +733,7 @@ class YuiApp {
         this.modalBodyTelephony.innerHTML = '<p class="sao-card-text">Cargando historial telefónico...</p>';
 
         try {
-            const res = await fetch('/api/telephony/history');
+            const res = await this.apiFetch('/api/telephony/history');
             const logs = await res.json();
             if (!logs || logs.length === 0) {
                 this.modalBodyTelephony.innerHTML = '<p class="sao-card-text" style="color: var(--text-muted);">No hay llamadas registradas en el historial.</p>';
@@ -675,13 +746,13 @@ class YuiApp {
                 return `
                 <div class="sao-card-item">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-                        <span class="sao-card-text"><strong>${nameDisplay}</strong> (${l.phone_number})</span>
+                        <span class="sao-card-text"><strong>${this.escapeHtml(nameDisplay)}</strong> (${this.escapeHtml(l.phone_number)})</span>
                         <span style="font-size: 0.8rem; color: ${wasAnswered ? 'var(--accent-green)' : 'var(--accent-pink)'}; font-weight: 600;">
                             ${wasAnswered ? '✅ Contestada por Yui' : '🚫 Bloqueada / Desconocido'}
                         </span>
                     </div>
                     <div class="sao-card-sub">
-                        🕒 ${l.timestamp} • Timbrado: ${l.ringing_seconds}s
+                        🕒 ${this.escapeHtml(l.timestamp)} • Timbrado: ${this.escapeHtml(l.ringing_seconds)}s
                     </div>
                 </div>
             `}).join('');
@@ -699,7 +770,7 @@ class YuiApp {
         this.simulationResult.innerHTML = '<span style="color: var(--accent-cyan);">⏳ Simulando 35 segundos de timbrado sin respuesta... Yui evaluando llamada...</span>';
 
         try {
-            const res = await fetch('/api/telephony/incoming', {
+            const res = await this.apiFetch('/api/telephony/incoming', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phone_number: phone, ringing_seconds: 35 })
@@ -713,8 +784,8 @@ class YuiApp {
             if (actionIsAnswer) {
                 this.simulationResult.innerHTML = `
                     <div style="padding: 0.5rem; background: rgba(80, 250, 123, 0.1); border-left: 3px solid var(--accent-green); border-radius: 4px;">
-                        <span style="color: var(--accent-green); font-weight: bold;">📞 CONTACTO RECONOCIDO (${callerName}):</span>
-                        <div style="margin-top: 0.25rem; font-style: italic;">"${spokenMsg}"</div>
+                        <span style="color: var(--accent-green); font-weight: bold;">📞 CONTACTO RECONOCIDO (${this.escapeHtml(callerName)}):</span>
+                        <div style="margin-top: 0.25rem; font-style: italic;">"${this.escapeHtml(spokenMsg)}"</div>
                     </div>
                 `;
                 // Reproducir voz de Yui contestando la llamada

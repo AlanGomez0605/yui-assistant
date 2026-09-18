@@ -49,6 +49,7 @@ object GoogleAccountManager {
                 instanceFollowRedirects = true
                 connectTimeout = 15000
                 readTimeout = 15000
+                ApiClient.authorize(context, this)
             }
 
             val payload = JSONObject().apply {
@@ -87,6 +88,7 @@ object GoogleAccountManager {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 10000
+                ApiClient.authorize(context, this)
             }
 
             if (conn.responseCode in 200..299) {

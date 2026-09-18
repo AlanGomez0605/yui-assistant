@@ -206,6 +206,20 @@
     </div>
 
     <!-- Scripts de la Aplicación -->
+    <div id="authModal" class="sao-modal-backdrop">
+        <div class="sao-modal-box auth-box">
+            <div class="sao-modal-header">
+                <h3 class="sao-modal-title">Acceso seguro a Yui</h3>
+            </div>
+            <div class="sao-modal-body">
+                <p class="sao-card-text">Introduce el API_TOKEN configurado en el servidor.</p>
+                <input id="authTokenInput" class="sao-input" type="password" autocomplete="current-password" placeholder="Token de acceso">
+                <p id="authError" class="sao-card-sub auth-error" aria-live="polite"></p>
+                <button id="authSubmitBtn" class="sao-send-btn auth-submit" type="button">Conectar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/scripts/sao_audio.js"></script>
     <script src="/scripts/app.js"></script>
 </body>

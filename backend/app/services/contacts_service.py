@@ -3,6 +3,7 @@ import logging
 import re
 from typing import List, Dict, Optional, Any
 from ..core.mongodb import mongodb_manager
+from ..core.mongodb import DatabaseUnavailableError
 from ..core.config import get_settings
 
 settings = get_settings()
@@ -12,9 +13,10 @@ class ContactsService:
         self._initialized = False
 
     async def ensure_db(self):
-        if not self._initialized:
-            await mongodb_manager.connect()
-            self._initialized = True
+        if not mongodb_manager.is_connected():
+            self._initialized = await mongodb_manager.connect()
+        if not mongodb_manager.is_connected():
+            raise DatabaseUnavailableError("MongoDB es necesario para administrar contactos.")
 
     def _normalize_phone(self, phone: str) -> str:
         """Limpia espacios, guiones y símbolos de un número telefónico para comparación exacta."""

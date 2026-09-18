@@ -19,11 +19,12 @@ settings = get_settings()
 class GeminiYuiService:
     def __init__(self):
         self.api_key = settings.GEMINI_API_KEY
-        self.preferred_models = [
+        self.preferred_models = list(dict.fromkeys([
+            settings.GEMINI_MODEL,
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
-            "gemini-3.8-flash"
-        ]
+            "gemini-3.8-flash",
+        ]))
         self.system_prompt_base = get_yui_system_prompt(
             owner_name=settings.OWNER_NAME,
             owner_nickname=settings.OWNER_NICKNAME
@@ -136,7 +137,13 @@ class GeminiYuiService:
         # Post-procesamiento asíncrono controlado con hora local
         full_reply = "".join(full_reply_parts)
         if persist_session:
-            task = asyncio.create_task(self._post_process(message, full_reply, persist_session, client_time=client_time))
+            task = asyncio.create_task(self._post_process(
+                message,
+                full_reply,
+                persist_session,
+                client_time=client_time,
+                client_timezone=client_timezone
+            ))
             self._pending_tasks.add(task)
             task.add_done_callback(self._pending_tasks.discard)
 
@@ -149,11 +156,26 @@ class GeminiYuiService:
             except Exception:
                 pass
 
-    async def _post_process(self, user_message: str, assistant_reply: str, session_id: str, client_time: Optional[str] = None):
+    async def _post_process(
+        self,
+        user_message: str,
+        assistant_reply: str,
+        session_id: str,
+        client_time: Optional[str] = None,
+        client_timezone: Optional[str] = None
+    ):
         try:
-            await memory_service.save_message("user", user_message, session_id=session_id)
-            await memory_service.save_message("assistant", assistant_reply, session_id=session_id)
-            await self.extractor.analyze_and_extract(user_message, assistant_reply, client_time=client_time)
+            await memory_service.save_conversation_exchange(
+                user_message,
+                assistant_reply,
+                session_id=session_id
+            )
+            await self.extractor.analyze_and_extract(
+                user_message,
+                assistant_reply,
+                client_time=client_time,
+                client_timezone=client_timezone
+            )
         except Exception as e:
             logging.error(f"Error en post-proceso de memoria: {e}")
 

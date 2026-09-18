@@ -62,7 +62,8 @@ class MemoryExtractorService:
         self,
         user_message: str,
         assistant_reply: str,
-        client_time: Optional[str] = None
+        client_time: Optional[str] = None,
+        client_timezone: Optional[str] = None
     ) -> None:
         """Analiza la interacción y actualiza o elimina registros en la base de datos."""
         if not self.gemini.is_configured():
@@ -81,7 +82,7 @@ class MemoryExtractorService:
                     temperature=0.1
                 )
                 chat = self.gemini.client.chats.create(
-                    model="gemini-3.5-flash-lite",
+                    model=settings.GEMINI_MODEL,
                     config=config
                 )
                 return chat.send_message(prompt)
@@ -123,7 +124,12 @@ class MemoryExtractorService:
                 due = rem.get("due_datetime")
                 desc = rem.get("description")
                 if title and due:
-                    await memory_service.add_reminder(title=title, due_datetime=due, description=desc)
+                    await memory_service.add_reminder(
+                        title=title,
+                        due_datetime=due,
+                        description=desc,
+                        timezone=client_timezone or settings.OWNER_TIMEZONE
+                    )
 
             # 4. Guardar o actualizar recuerdos con sus motivos
             for mem in data.get("new_memories", []):
@@ -149,7 +155,5 @@ class MemoryExtractorService:
                     pass
 
             # 6. Guardar la conversación completa como documento permanente
-            await memory_service.save_conversation_exchange(user_message, assistant_reply)
-
         except Exception as e:
             logging.error(f"Error en extracción/eliminación automática de memoria: {e}")

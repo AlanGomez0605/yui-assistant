@@ -5,6 +5,9 @@ from .config import get_settings
 
 settings = get_settings()
 
+class DatabaseUnavailableError(RuntimeError):
+    pass
+
 class MongoDBManager:
     def __init__(self):
         self.client: Optional[motor.motor_asyncio.AsyncIOMotorClient] = None
@@ -12,6 +15,9 @@ class MongoDBManager:
         self._connected = False
 
     async def connect(self) -> bool:
+        if self._connected and self.client is not None and self.db is not None:
+            return True
+
         """Conecta a la base de datos MongoDB Atlas en la nube si MONGODB_URI está configurado."""
         uri = settings.MONGODB_URI.strip()
         if not uri or "<db_password>" in uri or "tu_mongodb_uri" in uri:
@@ -30,9 +36,20 @@ class MongoDBManager:
             logging.info("✅ Conexión exitosa a MongoDB Atlas en la nube!")
             return True
         except Exception as e:
-            logging.warning(f"⚠️ No se pudo conectar a MongoDB Atlas ({e}). Se usará almacenamiento local.")
+            logging.warning(f"No se pudo conectar a MongoDB Atlas ({e}). Las funciones persistentes no estarán disponibles.")
+            if self.client is not None:
+                self.client.close()
+            self.client = None
+            self.db = None
             self._connected = False
             return False
+
+    async def close(self) -> None:
+        if self.client is not None:
+            self.client.close()
+        self.client = None
+        self.db = None
+        self._connected = False
 
     def is_connected(self) -> bool:
         return self._connected
@@ -40,6 +57,6 @@ class MongoDBManager:
     def get_collection(self, collection_name: str):
         if self._connected and self.db is not None:
             return self.db[collection_name]
-        return None
+        raise DatabaseUnavailableError("MongoDB no esta disponible.")
 
 mongodb_manager = MongoDBManager()

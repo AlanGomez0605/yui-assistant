@@ -55,6 +55,7 @@ class YuiReminderSyncService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + serviceJob)
     private var pollJob: Job? = null
     private var wsJob: Job? = null
+    @Volatile private var activeWebSocket: NativeWebSocketClient? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -104,9 +105,10 @@ class YuiReminderSyncService : Service() {
 
                 // Usamos java.net nativo para evitar dependencias adicionales
                 val uri = URI(wsUrl)
-                val client = NativeWebSocketClient(uri) { messageJson ->
+                val client = NativeWebSocketClient(uri, ApiClient.getApiToken(this)) { messageJson ->
                     handleWebSocketMessage(messageJson)
                 }
+                activeWebSocket = client
                 client.connect()
 
                 // Mantener el WS vivo con pings cada 20 segundos
@@ -136,7 +138,8 @@ class YuiReminderSyncService : Service() {
                 Log.d(TAG, "⚡ Recordatorio en tiempo real recibido por WS: $title")
 
                 // Disparar inmediatamente la notificación y TTS
-                triggerImmediateReminder(title, message)
+                val reminderId = obj.optString("reminder_id", title)
+                triggerImmediateReminder(title, message, reminderId)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error procesando mensaje WS: ${e.message}")
@@ -147,7 +150,8 @@ class YuiReminderSyncService : Service() {
      * Dispara un recordatorio inmediato con TTS + notificación.
      * Usado tanto por WS en tiempo real como por el poll cuando detecta hora cumplida.
      */
-    private fun triggerImmediateReminder(title: String, message: String) {
+    private fun triggerImmediateReminder(title: String, message: String, reminderId: String) {
+        if (wasDeliveredRecently(reminderId)) return
         // TTS
         OfflineCommandEngine.initTts(this)
         val ttsText = if (message.isNotBlank()) message else "Alan, tienes un recordatorio: $title"
@@ -165,7 +169,7 @@ class YuiReminderSyncService : Service() {
         }
 
         // Notificación heads-up
-        showReminderNotification(title, message)
+        showReminderNotification(title, message, reminderId)
     }
 
     /**
@@ -181,6 +185,7 @@ class YuiReminderSyncService : Service() {
                 requestMethod = "GET"
                 connectTimeout = 8000
                 readTimeout = 8000
+                ApiClient.authorize(this@YuiReminderSyncService, this)
             }
 
             if (conn.responseCode !in 200..299) return
@@ -190,20 +195,33 @@ class YuiReminderSyncService : Service() {
             val now = System.currentTimeMillis()
             val sdfFull = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
             val sdfShort = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            sdfFull.isLenient = false
+            sdfShort.isLenient = false
 
             for (i in 0 until jsonArray.length()) {
                 val item = jsonArray.getJSONObject(i)
                 val title = item.optString("title", "Recordatorio de Yui")
                 val dueStr = item.optString("due_datetime", "")
                 val description = item.optString("description", "")
+                val reminderId = item.optString("id", "$title|$dueStr")
+                if (item.optBoolean("is_notified", false)) continue
+                val reminderTimeZone = java.util.TimeZone.getTimeZone(
+                    item.optString("timezone", java.util.TimeZone.getDefault().id)
+                )
+                sdfFull.timeZone = reminderTimeZone
+                sdfShort.timeZone = reminderTimeZone
 
                 if (dueStr.isEmpty()) continue
 
-                val parsedDate = try {
-                    sdfFull.parse(dueStr) ?: sdfShort.parse(dueStr)
-                } catch (e: Exception) {
-                    null
-                } ?: continue
+                var parsedDate: java.util.Date? = null
+                for (formatter in listOf(sdfFull, sdfShort)) {
+                    try {
+                        parsedDate = formatter.parse(dueStr)
+                        if (parsedDate != null) break
+                    } catch (_: Exception) {
+                    }
+                }
+                if (parsedDate == null) continue
 
                 val triggerMs = parsedDate.time
                 val diffMs = triggerMs - now
@@ -212,13 +230,14 @@ class YuiReminderSyncService : Service() {
                     // Recordatorio en el futuro → programar en AlarmManager
                     diffMs > 0 -> {
                         Log.d(TAG, "Programando recordatorio futuro: '$title' en ${diffMs / 60000}min")
-                        AutonomousReminderManager.scheduleLocalReminder(this, title, triggerMs, description)
+                        AutonomousReminderManager.scheduleLocalReminder(this, title, triggerMs, description, reminderId)
                     }
 
                     // Recordatorio que venció hace menos de 3 minutos → disparar AHORA
                     diffMs >= -180_000L -> {
                         Log.d(TAG, "⚡ Recordatorio vencido detectado en poll: '$title'. Disparando!")
-                        triggerImmediateReminder(title, "")
+                        triggerImmediateReminder(title, "", reminderId)
+                        acknowledgeReminder(reminderId)
                     }
 
                     // Muy viejo → ignorar (el backend lo limpiará)
@@ -234,7 +253,40 @@ class YuiReminderSyncService : Service() {
         }
     }
 
-    private fun showReminderNotification(title: String, body: String) {
+    private fun wasDeliveredRecently(reminderId: String): Boolean {
+        val prefs = getSharedPreferences("yui_delivered_reminders", Context.MODE_PRIVATE)
+        val key = "delivered_${reminderId.hashCode().and(0x7fffffff)}"
+        val now = System.currentTimeMillis()
+        val previous = prefs.getLong(key, 0L)
+        if (now - previous < 10 * 60_000L) return true
+        prefs.edit().putLong(key, now).apply()
+        return false
+    }
+
+    private fun acknowledgeReminder(reminderId: String) {
+        var connection: HttpURLConnection? = null
+        try {
+            val encodedId = java.net.URLEncoder.encode(reminderId, "UTF-8")
+            val url = java.net.URL("${ApiClient.getBackendUrl(this)}/api/reminders/$encodedId/notified")
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 8000
+                readTimeout = 8000
+                doOutput = true
+                ApiClient.authorize(this@YuiReminderSyncService, this)
+            }
+            connection.outputStream.use { }
+            if (connection.responseCode !in 200..299) {
+                Log.w(TAG, "No se pudo confirmar el recordatorio $reminderId: HTTP ${connection.responseCode}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo confirmar el recordatorio $reminderId: ${e.message}")
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    private fun showReminderNotification(title: String, body: String, reminderId: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -258,7 +310,7 @@ class YuiReminderSyncService : Service() {
             .setAutoCancel(true)
             .build()
 
-        manager.notify((System.currentTimeMillis() % 100000).toInt(), notification)
+        manager.notify(reminderId.hashCode().and(0x7fffffff), notification)
     }
 
     private fun createNotification(): android.app.Notification {
@@ -281,6 +333,8 @@ class YuiReminderSyncService : Service() {
     }
 
     override fun onDestroy() {
+        activeWebSocket?.close()
+        activeWebSocket = null
         super.onDestroy()
         serviceJob.cancel()
         Log.d(TAG, "YuiReminderSyncService detenido.")

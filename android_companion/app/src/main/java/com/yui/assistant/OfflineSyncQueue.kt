@@ -56,8 +56,8 @@ object OfflineSyncQueue {
             val payload = task.getJSONObject("payload")
 
             val success = when (type) {
-                "REMINDER_CREATE" -> postJson("$baseUrl/api/memory/reminders", payload)
-                "MEMORY_CREATE" -> postJson("$baseUrl/api/memory", payload)
+                "REMINDER_CREATE" -> postJson(context, "$baseUrl/api/memory/reminders", payload)
+                "MEMORY_CREATE" -> postJson(context, "$baseUrl/api/memories", payload)
                 else -> false
             }
 
@@ -73,7 +73,7 @@ object OfflineSyncQueue {
         syncedCount
     }
 
-    private fun postJson(urlString: String, json: JSONObject): Boolean {
+    private fun postJson(context: Context, urlString: String, json: JSONObject): Boolean {
         return try {
             val url = URL(urlString)
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -84,6 +84,7 @@ object OfflineSyncQueue {
                 instanceFollowRedirects = true
                 connectTimeout = 8000
                 readTimeout = 8000
+                ApiClient.authorize(context, this)
             }
 
             BufferedWriter(OutputStreamWriter(conn.outputStream, "UTF-8")).use {
