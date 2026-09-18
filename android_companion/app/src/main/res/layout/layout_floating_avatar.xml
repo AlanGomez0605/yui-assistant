@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootFloatingContainer"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <!-- Tarjeta de Menú Desplegable SAO -->
+    <LinearLayout
+        android:id="@+id/layoutFloatingMenu"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="60dp"
+        android:background="@drawable/bg_floating_menu"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvMenuTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🌸 YUI • MHCP-0001"
+                android:textColor="#FF79C6"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvConnectivityStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="● Offline"
+                android:textColor="#F1FA8C"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvVoiceSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="10dp"
+            android:text="Asistente Autónoma Lista"
+            android:textColor="#8BE9FD"
+            android:textSize="12sp" />
+
+        <!-- Botón 1: Hablar por Voz -->
+        <Button
+            android:id="@+id/btnFloatingVoice"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_menu_button"
+            android:text="🎙️ Hablar con Yui"
+            android:textAllCaps="false"
+            android:textColor="#F8F8F2"
+            android:textSize="13sp" />
+
+        <!-- Botón 2: Abrir App SAO -->
+        <Button
+            android:id="@+id/btnFloatingOpenApp"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_menu_button"
+            android:text="📱 Abrir App Principal"
+            android:textAllCaps="false"
+            android:textColor="#F8F8F2"
+            android:textSize="13sp" />
+
+        <!-- Botón 3: Ver Recordatorios -->
+        <Button
+            android:id="@+id/btnFloatingReminders"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_menu_button"
+            android:text="⏰ Próximos Recordatorios"
+            android:textAllCaps="false"
+            android:textColor="#F8F8F2"
+            android:textSize="13sp" />
+
+        <!-- Botón 4: Minimizar Menú -->
+        <Button
+            android:id="@+id/btnFloatingCloseMenu"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_menu_button"
+            android:text="✖️ Minimizar"
+            android:textAllCaps="false"
+            android:textColor="#6272A4"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Avatar 2D Sprite de Yui (Burbuja Flotante Arrastrable) -->
+    <FrameLayout
+        android:id="@+id/layoutAvatarBubble"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/bg_floating_avatar"
+        android:elevation="12dp">
+
+        <ImageView
+            android:id="@+id/ivAvatarSprite"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:scaleType="centerCrop"
+            android:src="@drawable/yui_avatar" />
+
+        <!-- Indicador de Pulso de Estado -->
+        <View
+            android:id="@+id/viewStatusDot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="2dp"
+            android:background="@drawable/bg_floating_avatar" />
+    </FrameLayout>
+
+</FrameLayout>

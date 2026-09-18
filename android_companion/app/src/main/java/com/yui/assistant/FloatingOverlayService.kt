@@ -14,9 +14,12 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 class FloatingOverlayService : Service() {
@@ -24,6 +27,11 @@ class FloatingOverlayService : Service() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+
+    private var layoutFloatingMenu: LinearLayout? = null
+    private var layoutAvatarBubble: FrameLayout? = null
+    private var tvConnectivityStatus: TextView? = null
+    private var isMenuExpanded = false
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "yui_overlay_channel"
@@ -34,6 +42,8 @@ class FloatingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        OfflineCommandEngine.initTts(this)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, createNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -55,7 +65,7 @@ class FloatingOverlayService : Service() {
 
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Yui - MHCP-0001")
-            .setContentText("Asistente flotante activa y protegiendo tus llamadas")
+            .setContentText("Avatar 2D flotante activo y listo para interactuar")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -79,33 +89,63 @@ class FloatingOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 250
+            x = 80
+            y = 260
         }
 
-        // Crear contenedor visual de la burbuja SAO
-        val bubbleFrame = FrameLayout(this).apply {
-            setPadding(20, 20, 20, 20)
-            val bgDrawable = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xEE060A11.toInt())
-                setStroke(3, 0xFFFF79C6.toInt())
-                cornerRadius = 40f
+        val inflater = LayoutInflater.from(this)
+        floatingView = inflater.inflate(R.layout.layout_floating_avatar, null)
+
+        layoutFloatingMenu = floatingView?.findViewById(R.id.layoutFloatingMenu)
+        layoutAvatarBubble = floatingView?.findViewById(R.id.layoutAvatarBubble)
+        tvConnectivityStatus = floatingView?.findViewById(R.id.tvConnectivityStatus)
+
+        val btnVoice = floatingView?.findViewById<Button>(R.id.btnFloatingVoice)
+        val btnOpenApp = floatingView?.findViewById<Button>(R.id.btnFloatingOpenApp)
+        val btnReminders = floatingView?.findViewById<Button>(R.id.btnFloatingReminders)
+        val btnCloseMenu = floatingView?.findViewById<Button>(R.id.btnFloatingCloseMenu)
+
+        updateConnectivityBadge()
+
+        // 1. Botón Hablar con Yui (Micrófono rápido)
+        btnVoice?.setOnClickListener {
+            toggleMenu(false)
+            val voiceIntent = Intent(this, VoiceQuickDialogActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
-            background = bgDrawable
+            startActivity(voiceIntent)
         }
 
-        val bubbleText = TextView(this).apply {
-            text = "🌸 YUI"
-            setTextColor(0xFFFF79C6.toInt())
-            textSize = 14f
-            setPadding(24, 12, 24, 12)
+        // 2. Botón Abrir App Principal
+        btnOpenApp?.setOnClickListener {
+            toggleMenu(false)
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
         }
 
-        bubbleFrame.addView(bubbleText)
-        floatingView = bubbleFrame
+        // 3. Botón Recordatorios
+        btnReminders?.setOnClickListener {
+            toggleMenu(false)
+            val reminders = AutonomousReminderManager.getLocalReminders(this)
+            if (reminders.isEmpty()) {
+                Toast.makeText(this, "🌸 No tienes recordatorios pendientes próximos.", Toast.LENGTH_SHORT).show()
+                OfflineCommandEngine.speak(this, "No tienes recordatorios pendientes próximos, Alan.")
+            } else {
+                val first = reminders.first()
+                val text = "Próximo recordatorio: ${first.title}"
+                Toast.makeText(this, "⏰ $text", Toast.LENGTH_LONG).show()
+                OfflineCommandEngine.speak(this, text)
+            }
+        }
 
-        // Añadir comportamiento de arrastre con el dedo (Drag & Drop)
-        floatingView?.setOnTouchListener(object : View.OnTouchListener {
+        // 4. Botón Minimizar
+        btnCloseMenu?.setOnClickListener {
+            toggleMenu(false)
+        }
+
+        // Arrastre táctil y toque del Avatar
+        layoutAvatarBubble?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
@@ -125,7 +165,7 @@ class FloatingOverlayService : Service() {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                        if (Math.abs(dx) > 12 || Math.abs(dy) > 12) {
                             isClick = false
                         }
                         layoutParams!!.x = initialX + dx
@@ -135,10 +175,8 @@ class FloatingOverlayService : Service() {
                     }
                     MotionEvent.ACTION_UP -> {
                         if (isClick) {
-                            // Al tocar la burbuja, abrir la interfaz SAO completa
-                            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-                            launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            startActivity(launchIntent)
+                            // Al hacer clic en el avatar, alternar menú
+                            toggleMenu(!isMenuExpanded)
                         }
                         return true
                     }
@@ -151,6 +189,27 @@ class FloatingOverlayService : Service() {
             windowManager?.addView(floatingView, layoutParams)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun toggleMenu(expand: Boolean) {
+        isMenuExpanded = expand
+        if (expand) {
+            updateConnectivityBadge()
+            layoutFloatingMenu?.visibility = View.VISIBLE
+        } else {
+            layoutFloatingMenu?.visibility = View.GONE
+        }
+    }
+
+    private fun updateConnectivityBadge() {
+        val online = NetworkChangeReceiver.isConnected(this)
+        if (online) {
+            tvConnectivityStatus?.text = "● Online"
+            tvConnectivityStatus?.setTextColor(0xFF50FA7B.toInt())
+        } else {
+            tvConnectivityStatus?.text = "● Offline Ready"
+            tvConnectivityStatus?.setTextColor(0xFFF1FA8C.toInt())
         }
     }
 

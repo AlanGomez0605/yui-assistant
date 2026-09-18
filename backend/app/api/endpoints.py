@@ -9,6 +9,7 @@ from ..services.voice_service import voice_service
 from ..services.voice_auth_service import voice_auth_service
 from ..services.contacts_service import contacts_service
 from ..services.telephony_service import telephony_service
+from ..services.google_service import google_service
 from ..services.proactive_service import connection_manager, proactive_service
 
 router = APIRouter()
@@ -23,6 +24,14 @@ class MemoryCreate(BaseModel):
     content: str
     category: str = "fact"
     importance: int = 3
+
+class GoogleAccountLinkRequest(BaseModel):
+    email: str
+    display_name: Optional[str] = None
+    app_password: Optional[str] = None
+    oauth_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    scopes: Optional[List[str]] = None
 
 class SpeakRequest(BaseModel):
     text: str
@@ -205,4 +214,46 @@ async def delete_single_memory(memory_id: str):
     """Elimina físicamente un recuerdo de MongoDB Atlas."""
     success = await memory_service.delete_memory(memory_id)
     return {"status": "deleted", "id": memory_id, "success": success}
+
+# Alias para sincronización offline / Android
+@router.get("/memory/reminders")
+async def get_memory_reminders_alias():
+    return await memory_service.get_active_reminders()
+
+@router.post("/memory/reminders")
+async def create_memory_reminder_alias(req: ReminderCreate):
+    reminder = await memory_service.add_reminder(
+        title=req.title,
+        due_datetime=req.due_datetime,
+        description=req.description
+    )
+    return {"status": "created", "id": reminder.get("id"), "title": reminder.get("title")}
+
+# =============================================================================
+# ENDPOINTS DE CUENTAS DE GOOGLE (GMAIL, CALENDAR, DRIVE)
+# =============================================================================
+
+@router.get("/google/accounts")
+async def get_google_accounts():
+    """Obtiene las cuentas de Google vinculadas a Yui."""
+    return await google_service.get_all_accounts()
+
+@router.post("/google/accounts")
+async def link_google_account(req: GoogleAccountLinkRequest):
+    """Vincula una cuenta de Google para acceso y manipulación por Yui."""
+    return await google_service.link_account(
+        email=req.email,
+        display_name=req.display_name,
+        app_password=req.app_password,
+        oauth_token=req.oauth_token,
+        refresh_token=req.refresh_token,
+        scopes=req.scopes
+    )
+
+@router.delete("/google/accounts/{email}")
+async def delete_google_account(email: str):
+    """Desvincula una cuenta de Google."""
+    success = await google_service.delete_account(email)
+    return {"status": "deleted" if success else "not_found", "email": email}
+
 

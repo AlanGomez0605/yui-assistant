@@ -43,9 +43,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        OfflineCommandEngine.initTts(this)
         initViews()
         checkAndRequestPermissions()
         loadSavedUrl()
+
+        // Sincronizar recordatorios autónomos de la nube en segundo plano
+        CoroutineScope(Dispatchers.IO).launch {
+            AutonomousReminderManager.syncCloudReminders(this@MainActivity)
+        }
     }
 
     private fun initViews() {
@@ -205,6 +211,27 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun sendWhatsApp(phoneNumber: String, message: String): Boolean {
             return DeviceControlManager.sendWhatsApp(context, phoneNumber, message)
+        }
+
+        @JavascriptInterface
+        fun scheduleAutonomousReminder(title: String, triggerMillis: Long, description: String): Int {
+            return AutonomousReminderManager.scheduleLocalReminder(context, title, triggerMillis, description)
+        }
+
+        @JavascriptInterface
+        fun getDeviceGoogleAccounts(): String {
+            val accounts = GoogleAccountManager.getDeviceGoogleAccounts(context)
+            return org.json.JSONArray(accounts).toString()
+        }
+
+        @JavascriptInterface
+        fun processOfflineCommand(command: String): String {
+            val res = OfflineCommandEngine.processCommand(context, command)
+            return org.json.JSONObject().apply {
+                put("handled", res.handled)
+                put("response", res.responseMessage)
+                put("action", res.actionType)
+            }.toString()
         }
 
         @JavascriptInterface

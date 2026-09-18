@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
+    <!-- Cuentas de Google para manipulación y acceso de Yui -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+
     <!-- Acceso a Contactos para sincronización con MongoDB Atlas -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
@@ -20,8 +23,11 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
-    <!-- Control de Alarmas y Temporizadores del Teléfono -->
+    <!-- Control de Alarmas y Temporizadores del Teléfono & Recordatorios Autónomos -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -55,7 +61,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Servicio de Burbuja / HUD Flotante (SYSTEM_ALERT_WINDOW) -->
+        <!-- Diálogo Rápido de Voz Flotante -->
+        <activity
+            android:name=".VoiceQuickDialogActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Servicio de Avatar Flotante 2D y HUD SAO (SYSTEM_ALERT_WINDOW) -->
         <service
             android:name=".FloatingOverlayService"
             android:enabled="true"
@@ -65,6 +77,22 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating SAO HUD for Yui Assistant" />
         </service>
+
+        <!-- Receptor de Recordatorios Autónomos Exactos -->
+        <receiver
+            android:name=".AutonomousReminderReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Receptor de Cambio de Conectividad (Auto-Sync Queue) -->
+        <receiver
+            android:name=".NetworkChangeReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
 
         <!-- Receptor de Llamadas Entrantes (Manejador de 30-40s) -->
         <receiver
