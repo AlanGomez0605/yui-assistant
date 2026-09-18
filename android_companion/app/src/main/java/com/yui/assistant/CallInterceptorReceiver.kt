@@ -3,6 +3,7 @@ package com.yui.assistant
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
@@ -12,97 +13,146 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * CallInterceptorReceiver — Interceptor de llamadas telefónicas de Yui.
+ *
+ * LÓGICA:
+ * - Número DESCONOCIDO (no está en contactos de MongoDB): cuelga automáticamente a los 5 segundos.
+ * - Número REGISTRADO (existe en la agenda de Alan): NO interviene. Deja sonar normalmente.
+ * - Funciona siempre en segundo plano mientras [isCallFilterEnabled] sea true.
+ */
 class CallInterceptorReceiver : BroadcastReceiver() {
 
     companion object {
-        private const val TAG = "YuiCallInterceptor"
-        private const val RINGING_THRESHOLD_MS = 35000L // 35 segundos
+        private const val TAG = "YuiCallFilter"
+        private const val UNKNOWN_HANG_DELAY_MS = 5000L   // 5 segundos para colgar desconocido
+        private const val PREFS_NAME = "yui_call_filter"
+        private const val KEY_ENABLED = "call_filter_enabled"
+
+        @Volatile
         private var isCurrentlyRinging = false
+
+        @Volatile
         private var currentRingingNumber: String? = null
-        private var ringingStartTime: Long = 0
+
+        /**
+         * Habilita o deshabilita el filtro de llamadas desde cualquier parte de la app.
+         */
+        fun setEnabled(context: Context, enabled: Boolean) {
+            getPrefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
+            Log.d(TAG, "Filtro de llamadas ${if (enabled) "ACTIVADO" else "DESACTIVADO"} por el usuario.")
+        }
+
+        fun isEnabled(context: Context): Boolean {
+            return getPrefs(context).getBoolean(KEY_ENABLED, false)
+        }
+
+        private fun getPrefs(context: Context): SharedPreferences {
+            return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
-            val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
-            val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+        if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
 
-            Log.d(TAG, "Estado de telefonía: $state | Número: $incomingNumber")
+        // Si el filtro está desactivado, Yui no toca las llamadas
+        if (!isEnabled(context)) return
 
-            when (state) {
-                TelephonyManager.EXTRA_STATE_RINGING -> {
-                    isCurrentlyRinging = true
-                    currentRingingNumber = incomingNumber ?: "Desconocido"
-                    ringingStartTime = System.currentTimeMillis()
+        val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
+        val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
 
-                    // Iniciar monitoreo del temporizador de 35 segundos
-                    handleRingingTimer(context, currentRingingNumber!!)
-                }
+        Log.d(TAG, "Estado: $state | Número: ${incomingNumber ?: "sin número"}")
 
-                TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                    // Alan o Yui contestó la llamada
-                    isCurrentlyRinging = false
-                    Log.d(TAG, "Llamada descolgada (Off-hook). Deteniendo temporizador.")
-                }
+        when (state) {
+            TelephonyManager.EXTRA_STATE_RINGING -> {
+                if (isCurrentlyRinging) return  // Evitar doble disparo
+                isCurrentlyRinging = true
+                currentRingingNumber = incomingNumber
 
-                TelephonyManager.EXTRA_STATE_IDLE -> {
-                    // La llamada terminó o fue rechazada
-                    isCurrentlyRinging = false
-                    currentRingingNumber = null
-                    Log.d(TAG, "Llamada finalizada (Idle).")
-                }
+                handleIncomingCall(context, incomingNumber)
+            }
+
+            TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                // Alan contestó manualmente — cancelar cualquier acción pendiente
+                isCurrentlyRinging = false
+                currentRingingNumber = null
+                Log.d(TAG, "Alan contestó la llamada manualmente.")
+            }
+
+            TelephonyManager.EXTRA_STATE_IDLE -> {
+                // Llamada terminó o fue rechazada
+                isCurrentlyRinging = false
+                currentRingingNumber = null
+                Log.d(TAG, "Llamada finalizada.")
             }
         }
     }
 
-    private fun handleRingingTimer(context: Context, incomingNumber: String) {
-        CoroutineScope(Dispatchers.Main).launch {
-            Log.d(TAG, "Iniciando conteo de 35 segundos para número: $incomingNumber")
-            delay(RINGING_THRESHOLD_MS)
+    /**
+     * Decide en función de si el número es conocido o no.
+     * - Conocido  → no hace nada (deja sonar)
+     * - Desconocido → cuelga a los 5 segundos
+     */
+    private fun handleIncomingCall(context: Context, number: String?) {
+        val phoneNumber = number ?: ""
 
-            // Si después de 35s el teléfono sigue timbrando (Alan no contestó ni colgó):
-            if (isCurrentlyRinging && currentRingingNumber == incomingNumber) {
-                Log.d(TAG, "Tiempo agotado (35s). Yui asume el control automático...")
+        CoroutineScope(Dispatchers.IO).launch {
+            val isKnown = isNumberInContacts(context, phoneNumber)
 
-                val decision = ApiClient.evaluateIncomingCall(context, incomingNumber, 35)
+            if (isKnown) {
+                Log.d(TAG, "Número REGISTRADO detectado ($phoneNumber). Yui no interviene.")
+                // No hacemos nada: dejamos que suene normal
+                return@launch
+            }
 
-                if (decision != null) {
-                    val action = decision.optString("action")
-                    val callerName = decision.optString("caller_name")
-                    val messageSpoken = decision.optString("message_spoken")
+            // Número desconocido → esperar 5s y colgar si sigue timbrando
+            Log.d(TAG, "Número DESCONOCIDO ($phoneNumber). Colgando en ${UNKNOWN_HANG_DELAY_MS / 1000}s...")
+            delay(UNKNOWN_HANG_DELAY_MS)
 
-                    if (action == "answered_with_courtesy_message") {
-                        Log.d(TAG, "Yui contesta llamada de contacto registrado: $callerName")
-                        answerCallAutomatically(context)
-                    } else {
-                        Log.d(TAG, "Yui rechaza / cuelga llamada desconocida/spam: $incomingNumber")
-                        rejectCallAutomatically(context)
-                    }
-                }
+            if (isCurrentlyRinging && currentRingingNumber == phoneNumber) {
+                Log.d(TAG, "Colgando llamada desconocida: $phoneNumber")
+                rejectCall(context)
             }
         }
     }
 
-    private fun answerCallAutomatically(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-            try {
-                @Suppress("DEPRECATION")
-                telecomManager?.acceptRingingCall()
-            } catch (e: Exception) {
-                Log.e(TAG, "Permiso o error al contestar", e)
+    /**
+     * Verifica si el número existe en los contactos sincronizados de MongoDB.
+     * Usa el ApiClient para consultar rápidamente.
+     */
+    private suspend fun isNumberInContacts(context: Context, phoneNumber: String): Boolean {
+        if (phoneNumber.isBlank()) return false
+        return try {
+            // Normaliza: elimina espacios y guiones para comparar solo dígitos
+            val normalized = phoneNumber.replace(Regex("[^0-9+]"), "")
+            val contacts = ApiClient.getContactsSync(context)
+            contacts.any { contact ->
+                val contactPhone = contact.optString("phone", "").replace(Regex("[^0-9+]"), "")
+                contactPhone.isNotBlank() && (
+                    contactPhone.endsWith(normalized.takeLast(8)) ||
+                    normalized.endsWith(contactPhone.takeLast(8))
+                )
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo consultar contactos. Asumiendo desconocido: ${e.message}")
+            false // Si hay error de red, asume desconocido (lado seguro)
         }
     }
 
-    private fun rejectCallAutomatically(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-            try {
+    /**
+     * Cuelga la llamada usando TelecomManager.
+     */
+    private fun rejectCall(context: Context) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
                 telecomManager?.endCall()
-            } catch (e: Exception) {
-                Log.e(TAG, "Permiso o error al finalizar", e)
+                Log.d(TAG, "Llamada desconocida rechazada correctamente.")
+            } else {
+                Log.w(TAG, "API < Android 9: no se puede rechazar llamada programáticamente.")
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al rechazar llamada: ${e.message}")
         }
     }
 }

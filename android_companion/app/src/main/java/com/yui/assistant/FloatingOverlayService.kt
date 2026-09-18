@@ -43,6 +43,7 @@ class FloatingOverlayService : Service() {
     private var bobbingAnimator: ObjectAnimator? = null
     private var pulseAnimator: ObjectAnimator? = null
     private var wakeWordListener: WakeWordListener? = null
+    private var btnCallFilter: Button? = null
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "yui_overlay_channel"
@@ -119,7 +120,9 @@ class FloatingOverlayService : Service() {
         val btnOpenApp = floatingView?.findViewById<Button>(R.id.btnFloatingOpenApp)
         val btnReminders = floatingView?.findViewById<Button>(R.id.btnFloatingReminders)
         val btnCloseMenu = floatingView?.findViewById<Button>(R.id.btnFloatingCloseMenu)
+        btnCallFilter = floatingView?.findViewById<Button>(R.id.btnFloatingCallFilter)
 
+        updateCallFilterButton()
         updateConnectivityBadge()
         startSpriteAnimations()
 
@@ -152,7 +155,18 @@ class FloatingOverlayService : Service() {
             }
         }
 
-        // 4. Botón Minimizar
+        // 4. Toggle Filtro de Llamadas
+        btnCallFilter?.setOnClickListener {
+            val currentlyEnabled = CallInterceptorReceiver.isEnabled(this)
+            val newState = !currentlyEnabled
+            CallInterceptorReceiver.setEnabled(this, newState)
+            updateCallFilterButton()
+            val msg = if (newState) "Filtro de llamadas ACTIVADO. Cuelgo desconocidos en 5s." else "Filtro de llamadas desactivado."
+            Toast.makeText(this, if (newState) "📵 $msg" else "📞 $msg", Toast.LENGTH_SHORT).show()
+            OfflineCommandEngine.speak(this, msg)
+        }
+
+        // 5. Botón Minimizar
         btnCloseMenu?.setOnClickListener {
             toggleMenu(false)
         }
@@ -287,6 +301,17 @@ class FloatingOverlayService : Service() {
         } else {
             tvConnectivityStatus?.text = "● Offline Ready"
             tvConnectivityStatus?.setTextColor(0xFFF1FA8C.toInt())
+        }
+    }
+
+    private fun updateCallFilterButton() {
+        val enabled = CallInterceptorReceiver.isEnabled(this)
+        btnCallFilter?.apply {
+            text = if (enabled) "📵 Filtro ON" else "📞 Filtro OFF"
+            setBackgroundColor(
+                if (enabled) 0xFFFF5555.toInt()   // Rojo suave = activo (bloquea)
+                else 0xFF44475A.toInt()             // Gris = inactivo
+            )
         }
     }
 

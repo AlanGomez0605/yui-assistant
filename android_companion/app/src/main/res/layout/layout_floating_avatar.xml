@@ -87,7 +87,19 @@
             android:textColor="#F8F8F2"
             android:textSize="13sp" />
 
-        <!-- Botón 4: Minimizar Menú -->
+        <!-- Botón 4: Toggle Filtro de Llamadas -->
+        <Button
+            android:id="@+id/btnFloatingCallFilter"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_menu_button"
+            android:text="📞 Filtro OFF"
+            android:textAllCaps="false"
+            android:textColor="#F8F8F2"
+            android:textSize="13sp" />
+
+        <!-- Botón 5: Minimizar Menú -->
         <Button
             android:id="@+id/btnFloatingCloseMenu"
             android:layout_width="match_parent"
@@ -98,6 +110,7 @@
             android:textColor="#6272A4"
             android:textSize="12sp" />
     </LinearLayout>
+
 
     <!-- Avatar 2D Sprite de Yui (Burbuja Flotante Arrastrable) -->
     <FrameLayout

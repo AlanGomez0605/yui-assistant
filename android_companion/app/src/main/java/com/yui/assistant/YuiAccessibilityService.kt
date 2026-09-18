@@ -18,14 +18,25 @@ class YuiAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "YuiAccessibility"
+        private const val UNKNOWN_WA_HANG_DELAY_MS = 5000L   // 5s para rechazar desconocidos en WhatsApp
+
         var instance: YuiAccessibilityService? = null
             private set
 
+        /** Para envío automático de mensajes de WhatsApp */
         var pendingWhatsAppAutoSend = false
+
+        /** Estado de la llamada entrante de WhatsApp */
+        @Volatile
         private var isWhatsAppCallRinging = false
+
+        /** Número/Nombre del llamante detectado en la notificación WhatsApp */
+        @Volatile
+        private var whatsAppCallerName: String = ""
+
+        /** PendingIntents capturados de la notificación de llamada */
         private var lastCallActionPendingIntent: PendingIntent? = null
         private var lastDeclineActionPendingIntent: PendingIntent? = null
-        private var whatsappRingingStartTime = 0L
     }
 
     override fun onServiceConnected() {
@@ -69,9 +80,11 @@ class YuiAccessibilityService : AccessibilityService() {
                     textList.any { it.contains("llamada", ignoreCase = true) || it.contains("llamando", ignoreCase = true) }
 
             if (isCallNotification) {
-                Log.d(TAG, "Notificación de llamada de WhatsApp interceptada. Extrayendo acciones...")
+                Log.d(TAG, "Notificación de llamada de WhatsApp interceptada.")
                 extractNotificationActions(parcelable)
-                triggerCallTimer("Notificación de WhatsApp")
+                // Intentar extraer el nombre del llamante del título de la notificación
+                val callerName = parcelable.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+                triggerCallFilter("Notificación de WhatsApp", callerName)
                 return
             }
         }
@@ -85,7 +98,9 @@ class YuiAccessibilityService : AccessibilityService() {
 
         if (isVoipWindow) {
             Log.d(TAG, "Pantalla de llamada entrante de WhatsApp detectada: $className")
-            triggerCallTimer("Pantalla de llamada WhatsApp")
+            // Intentar extraer nombre del llamante del texto de la pantalla
+            val callerNameFromScreen = textList.firstOrNull { it.length > 2 } ?: ""
+            triggerCallFilter("Pantalla de llamada WhatsApp", callerNameFromScreen)
         }
     }
 
@@ -103,25 +118,66 @@ class YuiAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun triggerCallTimer(source: String) {
-        if (!isWhatsAppCallRinging) {
-            isWhatsAppCallRinging = true
-            whatsappRingingStartTime = System.currentTimeMillis()
-            Log.d(TAG, "Llamada entrante detectada vía [$source]. Esperando 25s antes de que Yui responda...")
+    /**
+     * Desencadena la lógica de filtro de llamadas de WhatsApp.
+     * - Si el filtro está desactivado, no hace nada.
+     * - Si el contacto está en la agenda de Alan → NO interviene.
+     * - Si es desconocido → rechaza a los 5 segundos.
+     */
+    private fun triggerCallFilter(source: String, callerName: String = "") {
+        // Si la función de filtro de llamadas está desactivada, no tocar nada
+        if (!CallInterceptorReceiver.isEnabled(this)) {
+            Log.d(TAG, "Filtro de llamadas desactivado. Yui no intervendrá en la llamada de WhatsApp.")
+            return
+        }
 
-            CoroutineScope(Dispatchers.Main).launch {
-                // Espera de 25 segundos (filtro configurable de timbrado)
-                delay(25000L)
-                if (isWhatsAppCallRinging) {
-                    Log.d(TAG, "25s cumplidos. Yui tomando el control de la llamada de WhatsApp...")
-                    val answered = answerWhatsAppCall()
-                    if (!answered) {
-                        // Si no pudo contestar con botón/intent, intentar gesto deslizar arriba
-                        performSwipeUpToAnswer()
+        if (isWhatsAppCallRinging) return  // Ya estamos procesando esta llamada
+        isWhatsAppCallRinging = true
+        whatsAppCallerName = callerName
+
+        Log.d(TAG, "Llamada WhatsApp detectada vía [$source]. Llamante: '${callerName.ifBlank { "Desconocido" }}'")
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val isKnown = isCallerKnown(callerName)
+
+            if (isKnown) {
+                Log.d(TAG, "Llamante WhatsApp REGISTRADO ('$callerName'). Yui no interviene.")
+                // Dejamos sonar normalmente sin tocar nada
+                return@launch
+            }
+
+            // Llamante desconocido → esperar 5s y rechazar
+            Log.d(TAG, "Llamante WhatsApp DESCONOCIDO. Rechazando en ${UNKNOWN_WA_HANG_DELAY_MS / 1000}s...")
+            delay(UNKNOWN_WA_HANG_DELAY_MS)
+
+            if (isWhatsAppCallRinging) {
+                Log.d(TAG, "Rechazando llamada WhatsApp desconocida.")
+                CoroutineScope(Dispatchers.Main).launch {
+                    val rejected = declineWhatsAppCall()
+                    if (!rejected) {
+                        Log.w(TAG, "No se pudo rechazar por botón. Puede que la pantalla ya no esté activa.")
                     }
                     isWhatsAppCallRinging = false
                 }
             }
+        }
+    }
+
+    /**
+     * Verifica si el nombre del llamante de WhatsApp está en los contactos de Alan.
+     * Usa el nombre que WhatsApp muestra en la notificación.
+     */
+    private suspend fun isCallerKnown(callerName: String): Boolean {
+        if (callerName.isBlank()) return false
+        return try {
+            val contacts = ApiClient.getContactsSync(this)
+            contacts.any { contact ->
+                val name = contact.optString("name", "").lowercase()
+                name.isNotBlank() && name.contains(callerName.lowercase().take(5))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo verificar contacto WhatsApp: ${e.message}")
+            false // Ante la duda, rechazar
         }
     }
 
@@ -284,6 +340,8 @@ class YuiAccessibilityService : AccessibilityService() {
         super.onDestroy()
         instance = null
         isWhatsAppCallRinging = false
+        lastCallActionPendingIntent = null
+        lastDeclineActionPendingIntent = null
     }
 }
 
