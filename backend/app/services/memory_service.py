@@ -236,11 +236,11 @@ class MemoryService:
         # Agenda de Contactos sincronizada
         try:
             from .contacts_service import contacts_service
-            contacts = await contacts_service.get_all_contacts(limit=50)
+            contacts = await contacts_service.get_all_contacts(limit=500)
             if contacts:
-                context_parts.append("\n👥 AGENDA TELEFÓNICA DE ALAN (Contactos sincronizados):")
+                context_parts.append(f"\n👥 AGENDA TELEFÓNICA DE ALAN ({len(contacts)} contactos disponibles para llamadas/WhatsApp):")
                 for ct in contacts:
-                    rel = f" ({ct.get('relationship')})" if ct.get('relationship') else ""
+                    rel = f" [{ct.get('relationship')}]" if ct.get('relationship') and ct.get('relationship') != 'conocido' else ""
                     context_parts.append(f"  • {ct.get('name')}: {ct.get('phone')}{rel}")
         except Exception as e:
             pass

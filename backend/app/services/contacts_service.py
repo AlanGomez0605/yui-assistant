@@ -80,14 +80,40 @@ class ContactsService:
             return contact
         return None
 
-    async def get_all_contacts(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_all_contacts(self, limit: int = 1000) -> List[Dict[str, Any]]:
         """Obtiene la lista completa de contactos autorizados."""
         await self.ensure_db()
         if not mongodb_manager.is_connected():
             return []
 
         coll = mongodb_manager.get_collection("contacts")
-        cursor = coll.find({}).sort("name", 1).limit(limit)
+        cursor = coll.find({}).sort("name", 1)
+        if limit and limit > 0:
+            cursor = cursor.limit(limit)
+
+        results = []
+        async for doc in cursor:
+            doc["id"] = str(doc.get("_id", ""))
+            doc.pop("_id", None)
+            results.append(doc)
+        return results
+
+    async def search_contacts(self, query_text: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Busca contactos por nombre o número telefónico."""
+        await self.ensure_db()
+        if not mongodb_manager.is_connected() or not query_text:
+            return []
+
+        coll = mongodb_manager.get_collection("contacts")
+        regex = re.compile(re.escape(query_text.strip()), re.IGNORECASE)
+        cursor = coll.find({
+            "$or": [
+                {"name": regex},
+                {"phone": regex},
+                {"normalized_phone": regex}
+            ]
+        }).limit(limit)
+
         results = []
         async for doc in cursor:
             doc["id"] = str(doc.get("_id", ""))

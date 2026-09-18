@@ -1,5 +1,7 @@
 package com.yui.assistant
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,11 +11,14 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -30,8 +35,14 @@ class FloatingOverlayService : Service() {
 
     private var layoutFloatingMenu: LinearLayout? = null
     private var layoutAvatarBubble: FrameLayout? = null
+    private var ivAvatarSprite: ImageView? = null
+    private var viewStatusDot: View? = null
     private var tvConnectivityStatus: TextView? = null
     private var isMenuExpanded = false
+
+    private var bobbingAnimator: ObjectAnimator? = null
+    private var pulseAnimator: ObjectAnimator? = null
+    private var wakeWordListener: WakeWordListener? = null
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "yui_overlay_channel"
@@ -49,7 +60,9 @@ class FloatingOverlayService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, createNotification())
         }
+
         createFloatingWidget()
+        initWakeWordListener()
     }
 
     private fun createNotification(): Notification {
@@ -65,7 +78,7 @@ class FloatingOverlayService : Service() {
 
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Yui - MHCP-0001")
-            .setContentText("Avatar 2D flotante activo y listo para interactuar")
+            .setContentText("Avatar 2D flotante activo y escuchando 'Oye Yui'")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -98,6 +111,8 @@ class FloatingOverlayService : Service() {
 
         layoutFloatingMenu = floatingView?.findViewById(R.id.layoutFloatingMenu)
         layoutAvatarBubble = floatingView?.findViewById(R.id.layoutAvatarBubble)
+        ivAvatarSprite = floatingView?.findViewById(R.id.ivAvatarSprite)
+        viewStatusDot = floatingView?.findViewById(R.id.viewStatusDot)
         tvConnectivityStatus = floatingView?.findViewById(R.id.tvConnectivityStatus)
 
         val btnVoice = floatingView?.findViewById<Button>(R.id.btnFloatingVoice)
@@ -106,14 +121,12 @@ class FloatingOverlayService : Service() {
         val btnCloseMenu = floatingView?.findViewById<Button>(R.id.btnFloatingCloseMenu)
 
         updateConnectivityBadge()
+        startSpriteAnimations()
 
         // 1. Botón Hablar con Yui (Micrófono rápido)
         btnVoice?.setOnClickListener {
             toggleMenu(false)
-            val voiceIntent = Intent(this, VoiceQuickDialogActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            startActivity(voiceIntent)
+            launchVoiceDialog()
         }
 
         // 2. Botón Abrir App Principal
@@ -175,7 +188,6 @@ class FloatingOverlayService : Service() {
                     }
                     MotionEvent.ACTION_UP -> {
                         if (isClick) {
-                            // Al hacer clic en el avatar, alternar menú
                             toggleMenu(!isMenuExpanded)
                         }
                         return true
@@ -190,6 +202,71 @@ class FloatingOverlayService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun startSpriteAnimations() {
+        // Animación de Levitación Suave (Idle Floating Bobbing)
+        layoutAvatarBubble?.let { bubble ->
+            bobbingAnimator = ObjectAnimator.ofFloat(bubble, "translationY", 0f, -12f, 0f).apply {
+                duration = 2400
+                repeatCount = ValueAnimator.INFINITE
+                repeatMode = ValueAnimator.RESTART
+                interpolator = AccelerateDecelerateInterpolator()
+                start()
+            }
+        }
+
+        // Animación de Pulso de Estado (Glow Pulse)
+        viewStatusDot?.let { dot ->
+            pulseAnimator = ObjectAnimator.ofFloat(dot, "alpha", 1f, 0.35f, 1f).apply {
+                duration = 1600
+                repeatCount = ValueAnimator.INFINITE
+                repeatMode = ValueAnimator.RESTART
+                interpolator = AccelerateDecelerateInterpolator()
+                start()
+            }
+        }
+    }
+
+    private fun initWakeWordListener() {
+        wakeWordListener = WakeWordListener(this) {
+            // Callback al detectar "Oye Yui" o "Yui"
+            onWakeWordTriggered()
+        }
+        wakeWordListener?.startListening()
+    }
+
+    private fun onWakeWordTriggered() {
+        // 1. Vibración háptica suave
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator?.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator?.vibrate(100)
+        }
+
+        // 2. Animación de Escucha activa en el Sprite (Halo Cyan)
+        layoutAvatarBubble?.let { bubble ->
+            bubble.animate()
+                .scaleX(1.2f)
+                .scaleY(1.2f)
+                .setDuration(250)
+                .withEndAction {
+                    bubble.animate().scaleX(1.0f).scaleY(1.0f).setDuration(250).start()
+                }
+                .start()
+        }
+
+        // 3. Abrir Diálogo de Voz Inmediato Manos Libres
+        launchVoiceDialog()
+    }
+
+    private fun launchVoiceDialog() {
+        val voiceIntent = Intent(this, VoiceQuickDialogActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        startActivity(voiceIntent)
     }
 
     private fun toggleMenu(expand: Boolean) {
@@ -215,6 +292,9 @@ class FloatingOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        bobbingAnimator?.cancel()
+        pulseAnimator?.cancel()
+        wakeWordListener?.stopListening()
         if (floatingView != null) {
             windowManager?.removeView(floatingView)
         }

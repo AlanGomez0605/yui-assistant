@@ -146,7 +146,29 @@ object OfflineCommandEngine {
             }
         }
 
-        // 6. Consultas de Hora / Fecha Offline
+        // 6. Búsqueda y Filtrado de Contactos (por letra o nombre)
+        if (query.contains("contacto") || query.contains("contactos")) {
+            val letterMatch = java.util.regex.Pattern.compile("(?:con la|que empiecen con|letra)\\s+([a-zA-Z])").matcher(query)
+            val allContacts = ContactsSyncManager.readAllContacts(context)
+
+            if (letterMatch.find()) {
+                val letter = letterMatch.group(1)!!.uppercase()
+                val filtered = allContacts.filter {
+                    val name = it.optString("name", "").trim()
+                    name.startsWith(letter, ignoreCase = true)
+                }
+                val count = filtered.size
+                val reply = if (count > 0) {
+                    "Encontré $count contactos con la letra $letter en tu agenda, Alan."
+                } else {
+                    "No encontré contactos registrados con la letra $letter."
+                }
+                speak(context, reply)
+                return CommandResult(true, reply, "FILTER_CONTACTS")
+            }
+        }
+
+        // 7. Consultas de Hora / Fecha Offline
         if (query.contains("hora es") || query.contains("qué hora") || query.contains("la hora")) {
             val now = Calendar.getInstance()
             val reply = "Son las %02d:%02d, Alan.".format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE))

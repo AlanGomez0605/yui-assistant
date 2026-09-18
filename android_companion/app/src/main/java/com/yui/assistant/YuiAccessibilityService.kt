@@ -2,7 +2,10 @@ package com.yui.assistant
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.Notification
+import android.app.PendingIntent
 import android.graphics.Path
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -20,13 +23,15 @@ class YuiAccessibilityService : AccessibilityService() {
 
         var pendingWhatsAppAutoSend = false
         private var isWhatsAppCallRinging = false
+        private var lastCallActionPendingIntent: PendingIntent? = null
+        private var lastDeclineActionPendingIntent: PendingIntent? = null
         private var whatsappRingingStartTime = 0L
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        Log.d(TAG, "🌸 YuiAccessibilityService conectado y listo.")
+        Log.d(TAG, "🌸 YuiAccessibilityService conectado y listo para monitorear WhatsApp y llamadas.")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -34,19 +39,183 @@ class YuiAccessibilityService : AccessibilityService() {
 
         val pkg = event.packageName?.toString() ?: ""
 
-        if (pkg == "com.whatsapp") {
-            handleWhatsAppCallEvent(event)
+        if (pkg == "com.whatsapp" || pkg.contains("whatsapp")) {
+            inspectWhatsAppEvent(event)
+
             if (pendingWhatsAppAutoSend) {
                 CoroutineScope(Dispatchers.Main).launch {
-                    delay(600L)
+                    delay(500L)
                     val sent = tryAutoSendWhatsAppMessage()
                     if (sent) {
                         pendingWhatsAppAutoSend = false
-                        Log.d(TAG, "Mensaje de WhatsApp enviado automáticamente.")
+                        Log.d(TAG, "Mensaje de WhatsApp enviado automáticamente con éxito.")
                     }
                 }
             }
         }
+    }
+
+    private fun inspectWhatsAppEvent(event: AccessibilityEvent) {
+        val className = event.className?.toString() ?: ""
+        val contentDesc = event.contentDescription?.toString() ?: ""
+        val textList = event.text.map { it.toString() }
+
+        // 1. Detección a través de Notificación de Llamada Entrante (Heads-Up)
+        val parcelable = event.parcelableData
+        if (parcelable is Notification) {
+            val isCallNotification = parcelable.category == Notification.CATEGORY_CALL ||
+                    contentDesc.contains("llamada", ignoreCase = true) ||
+                    contentDesc.contains("call", ignoreCase = true) ||
+                    textList.any { it.contains("llamada", ignoreCase = true) || it.contains("llamando", ignoreCase = true) }
+
+            if (isCallNotification) {
+                Log.d(TAG, "Notificación de llamada de WhatsApp interceptada. Extrayendo acciones...")
+                extractNotificationActions(parcelable)
+                triggerCallTimer("Notificación de WhatsApp")
+                return
+            }
+        }
+
+        // 2. Detección a través de Ventana de Llamada Full-Screen (VoipActivity / VoipActivityV2)
+        val isVoipWindow = className.contains("Voip", ignoreCase = true) ||
+                className.contains("calling", ignoreCase = true) ||
+                className.contains("InCall", ignoreCase = true) ||
+                contentDesc.contains("llamada entrante", ignoreCase = true) ||
+                textList.any { it.contains("llamada entrante", ignoreCase = true) || it.contains("incoming call", ignoreCase = true) }
+
+        if (isVoipWindow) {
+            Log.d(TAG, "Pantalla de llamada entrante de WhatsApp detectada: $className")
+            triggerCallTimer("Pantalla de llamada WhatsApp")
+        }
+    }
+
+    private fun extractNotificationActions(notification: Notification) {
+        val actions = notification.actions ?: return
+        for (action in actions) {
+            val title = action.title?.toString()?.lowercase() ?: ""
+            if (title.contains("contestar") || title.contains("responder") || title.contains("aceptar") || title.contains("answer") || title.contains("accept")) {
+                lastCallActionPendingIntent = action.actionIntent
+                Log.d(TAG, "Acción de CONTESTAR capturada desde notificación WhatsApp.")
+            } else if (title.contains("rechazar") || title.contains("colgar") || title.contains("declinar") || title.contains("decline") || title.contains("reject")) {
+                lastDeclineActionPendingIntent = action.actionIntent
+                Log.d(TAG, "Acción de RECHAZAR capturada desde notificación WhatsApp.")
+            }
+        }
+    }
+
+    private fun triggerCallTimer(source: String) {
+        if (!isWhatsAppCallRinging) {
+            isWhatsAppCallRinging = true
+            whatsappRingingStartTime = System.currentTimeMillis()
+            Log.d(TAG, "Llamada entrante detectada vía [$source]. Esperando 25s antes de que Yui responda...")
+
+            CoroutineScope(Dispatchers.Main).launch {
+                // Espera de 25 segundos (filtro configurable de timbrado)
+                delay(25000L)
+                if (isWhatsAppCallRinging) {
+                    Log.d(TAG, "25s cumplidos. Yui tomando el control de la llamada de WhatsApp...")
+                    val answered = answerWhatsAppCall()
+                    if (!answered) {
+                        // Si no pudo contestar con botón/intent, intentar gesto deslizar arriba
+                        performSwipeUpToAnswer()
+                    }
+                    isWhatsAppCallRinging = false
+                }
+            }
+        }
+    }
+
+    fun answerWhatsAppCall(): Boolean {
+        // Método 1: Ejecutar PendingIntent directo de la notificación
+        if (lastCallActionPendingIntent != null) {
+            try {
+                lastCallActionPendingIntent?.send()
+                Log.d(TAG, "Llamada WhatsApp contestada mediante PendingIntent de notificación.")
+                lastCallActionPendingIntent = null
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error ejecutando PendingIntent de llamada", e)
+            }
+        }
+
+        // Método 2: Clic en nodo por ID de WhatsApp
+        val root = rootInActiveWindow
+        if (root != null) {
+            val callButtonIds = listOf(
+                "com.whatsapp:id/answer_btn",
+                "com.whatsapp:id/accept_btn",
+                "com.whatsapp:id/voice_accept_btn",
+                "com.whatsapp:id/video_accept_btn",
+                "com.whatsapp:id/call_accept"
+            )
+            for (id in callButtonIds) {
+                val nodes = root.findAccessibilityNodeInfosByViewId(id)
+                if (!nodes.isNullOrEmpty()) {
+                    for (node in nodes) {
+                        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                            Log.d(TAG, "Llamada contestada mediante ViewId: $id")
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        // Método 3: Clic por texto o contentDescription
+        val answerKeywords = listOf("Contestar", "Responder", "Aceptar", "Answer", "Accept", "Aceptar llamada")
+        for (kw in answerKeywords) {
+            if (clickElementByTextOrDescription(kw)) {
+                Log.d(TAG, "Llamada de WhatsApp contestada con botón de texto/descripción: $kw")
+                return true
+            }
+        }
+
+        // Método 4: Gesto de deslizar hacia arriba
+        return performSwipeUpToAnswer()
+    }
+
+    fun declineWhatsAppCall(): Boolean {
+        if (lastDeclineActionPendingIntent != null) {
+            try {
+                lastDeclineActionPendingIntent?.send()
+                Log.d(TAG, "Llamada WhatsApp rechazada mediante PendingIntent.")
+                lastDeclineActionPendingIntent = null
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error rechazando llamada", e)
+            }
+        }
+
+        val declineKeywords = listOf("Rechazar", "Colgar", "Declinar", "Decline", "Reject")
+        for (kw in declineKeywords) {
+            if (clickElementByTextOrDescription(kw)) {
+                Log.d(TAG, "Llamada de WhatsApp rechazada con botón: $kw")
+                return true
+            }
+        }
+        return false
+    }
+
+    fun performSwipeUpToAnswer(): Boolean {
+        val metrics = resources.displayMetrics
+        val width = metrics.widthPixels.toFloat()
+        val height = metrics.heightPixels.toFloat()
+
+        val startX = width / 2f
+        val startY = height * 0.85f
+        val endY = height * 0.40f
+
+        val path = Path().apply {
+            moveTo(startX, startY)
+            lineTo(startX, endY)
+        }
+
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
+            .build()
+
+        Log.d(TAG, "Ejecutando gesto de deslizamiento hacia arriba para contestar...")
+        return dispatchGesture(gesture, null, null)
     }
 
     fun tryAutoSendWhatsAppMessage(): Boolean {
@@ -69,49 +238,40 @@ class YuiAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun handleWhatsAppCallEvent(event: AccessibilityEvent) {
-        val textList = event.text.map { it.toString() }
-        val isCallRelated = textList.any { 
-            it.contains("llamada", ignoreCase = true) || 
-            it.contains("ringing", ignoreCase = true) || 
-            it.contains("llamando", ignoreCase = true) 
-        }
+    private fun clickElementByTextOrDescription(targetText: String): Boolean {
+        val root = rootInActiveWindow ?: return false
 
-        if (isCallRelated && !isWhatsAppCallRinging) {
-            isWhatsAppCallRinging = true
-            whatsappRingingStartTime = System.currentTimeMillis()
-            Log.d(TAG, "Llamada de WhatsApp detectada. Iniciando temporizador de 35s...")
-
-            CoroutineScope(Dispatchers.Main).launch {
-                delay(35000L)
-                if (isWhatsAppCallRinging) {
-                    Log.d(TAG, "35s transcurridos en llamada WhatsApp. Yui contestando automáticamente...")
-                    answerWhatsAppCall()
-                    isWhatsAppCallRinging = false
+        // Buscar por texto
+        val nodesByText = root.findAccessibilityNodeInfosByText(targetText)
+        if (!nodesByText.isNullOrEmpty()) {
+            for (node in nodesByText) {
+                if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                var parent = node.parent
+                while (parent != null) {
+                    if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                    parent = parent.parent
                 }
             }
         }
+
+        // Buscar por ContentDescription recursivamente
+        return findAndClickByContentDescription(root, targetText)
     }
 
-    fun answerWhatsAppCall(): Boolean {
-        // Buscar botones de contestar típicos en WhatsApp en español e inglés
-        val answerKeywords = listOf("Contestar", "Responder", "Aceptar", "Answer", "Accept")
-        for (kw in answerKeywords) {
-            if (clickElementByText(kw)) {
-                Log.d(TAG, "Llamada de WhatsApp contestada con botón: $kw")
-                return true
+    private fun findAndClickByContentDescription(node: AccessibilityNodeInfo, text: String): Boolean {
+        val desc = node.contentDescription?.toString() ?: ""
+        if (desc.contains(text, ignoreCase = true)) {
+            if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+            var parent = node.parent
+            while (parent != null) {
+                if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                parent = parent.parent
             }
         }
-        return false
-    }
 
-    fun declineWhatsAppCall(): Boolean {
-        val declineKeywords = listOf("Rechazar", "Colgar", "Declinar", "Decline", "Reject")
-        for (kw in declineKeywords) {
-            if (clickElementByText(kw)) {
-                Log.d(TAG, "Llamada de WhatsApp rechazada con botón: $kw")
-                return true
-            }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (findAndClickByContentDescription(child, text)) return true
         }
         return false
     }
@@ -125,38 +285,5 @@ class YuiAccessibilityService : AccessibilityService() {
         instance = null
         isWhatsAppCallRinging = false
     }
-
-    /**
-     * Simula un toque (tap) en coordenadas específicas de la pantalla
-     */
-    fun performTap(x: Float, y: Float): Boolean {
-        val path = Path().apply { moveTo(x, y) }
-        val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-            .build()
-        return dispatchGesture(gesture, null, null)
-    }
-
-    /**
-     * Busca un botón o elemento con texto específico y hace clic en él
-     */
-    fun clickElementByText(targetText: String): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val nodes = root.findAccessibilityNodeInfosByText(targetText)
-        if (nodes != null) {
-            for (node in nodes) {
-                if (node.isClickable) {
-                    return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                }
-                var parent = node.parent
-                while (parent != null) {
-                    if (parent.isClickable) {
-                        return parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    }
-                    parent = parent.parent
-                }
-            }
-        }
-        return false
-    }
 }
+

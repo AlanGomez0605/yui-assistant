@@ -616,8 +616,13 @@ class YuiApp {
                 return;
             }
 
+            const titleEl = this.contactsModal.querySelector('.sao-modal-title');
+            if (titleEl) {
+                titleEl.textContent = `👥 Libreta de Contactos (${contacts.length})`;
+            }
+
             this.modalBodyContacts.innerHTML = contacts.map(c => `
-                <div class="sao-card-item" style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="sao-card-item contact-item-row" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <div class="sao-card-text">👤 <strong>${c.name}</strong> ${c.is_vip ? '⭐ VIP' : ''}</div>
                         <div class="sao-card-sub">📱 ${c.phone} • ${c.relationship || 'contacto'}</div>
