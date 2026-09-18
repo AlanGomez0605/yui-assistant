@@ -180,27 +180,30 @@ object OfflineCommandEngine {
     }
 
     private fun extractTime(text: String): Pair<Int, Int>? {
-        val pattern = Pattern.compile("(\\d{1,2})[:\\s](\\d{2})|a las (\\d{1,2})")
-        val matcher = pattern.matcher(text)
-        if (matcher.find()) {
-            if (matcher.group(1) != null && matcher.group(2) != null) {
-                var hour = matcher.group(1)!!.toInt()
-                val minute = matcher.group(2)!!.toInt()
-                if (text.contains("pm") || text.contains("tarde") || text.contains("noche")) {
-                    if (hour < 12) hour += 12
-                }
-                return Pair(hour, minute)
-            } else if (matcher.group(3) != null) {
-                var hour = matcher.group(3)!!.toInt()
-                var minute = 0
-                if (text.contains("media")) minute = 30
-                if (text.contains("cuarto")) minute = 15
-                if (text.contains("pm") || text.contains("tarde") || text.contains("noche")) {
-                    if (hour < 12) hour += 12
-                }
-                return Pair(hour, minute)
+        // 1. Coincidencia con formato HH:mm (ej. "7:30", "a las 7:30", "07:45")
+        val colonMatcher = Pattern.compile("(\\d{1,2}):(\\d{2})").matcher(text)
+        if (colonMatcher.find()) {
+            var hour = colonMatcher.group(1)!!.toInt()
+            val minute = colonMatcher.group(2)!!.toInt()
+            if (text.contains("pm") || text.contains("tarde") || text.contains("noche")) {
+                if (hour < 12) hour += 12
             }
+            return Pair(hour, minute)
         }
+
+        // 2. Coincidencia con "a las X" (ej. "a las 7", "a las 8 y media")
+        val naturalMatcher = Pattern.compile("(?:a las|para las)\\s+(\\d{1,2})").matcher(text)
+        if (naturalMatcher.find()) {
+            var hour = naturalMatcher.group(1)!!.toInt()
+            var minute = 0
+            if (text.contains("media")) minute = 30
+            if (text.contains("cuarto")) minute = 15
+            if (text.contains("pm") || text.contains("tarde") || text.contains("noche")) {
+                if (hour < 12) hour += 12
+            }
+            return Pair(hour, minute)
+        }
+
         return null
     }
 
