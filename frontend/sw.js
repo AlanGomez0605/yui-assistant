@@ -2,7 +2,7 @@
 // PROYECTO YUI - SERVICE WORKER PARA ACCESO OFFLINE & PWA EN ANDROID
 // ==============================================================================
 
-const CACHE_NAME = 'yui-cache-v2';
+const CACHE_NAME = 'yui-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/styles/main.css',
@@ -53,16 +53,6 @@ self.addEventListener('fetch', (event) => {
         }
         throw error;
       }
-    })
-  );
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      const existing = windowClients.find((client) => 'focus' in client);
-      return existing ? existing.focus() : clients.openWindow('/');
     })
   );
 });

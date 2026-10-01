@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Yui SAO</string>
-    <string name="accessibility_description">Servicio de asistencia y control inteligente de Yui para navegación y tareas automáticas.</string>
+    <string name="accessibility_description">Permite a Yui detectar llamadas entrantes de WhatsApp y rechazar las de números que no están en tu agenda cuando el filtro de llamadas está activo.</string>
 </resources>

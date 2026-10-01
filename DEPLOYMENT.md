@@ -10,21 +10,19 @@ Configura secretos distintos y aleatorios en el panel del proveedor. No los guar
 |---|---|
 | `GEMINI_API_KEY` | Acceso a Gemini |
 | `GEMINI_MODEL` | Modelo configurado |
-| `MONGODB_URI` | MongoDB Atlas |
-| `API_TOKEN` | Protege API, WebSocket y acceso web |
-| `DATA_ENCRYPTION_KEY` | Cifra credenciales almacenadas; no debe cambiarse sin migrarlas |
-| `OWNER_TIMEZONE` | Zona IANA, por ejemplo `America/Mexico_City` |
+| `MONGODB_URI` | MongoDB Atlas (memoria de Yui) |
+| `API_TOKEN` | Protege la API y el acceso web |
 | `CORS_ORIGINS` | Orígenes web externos permitidos, separados por coma; puede quedar vacío |
 | `DEBUG` | Debe ser `false` en producción |
 
-Genera `API_TOKEN` y `DATA_ENCRYPTION_KEY` como valores independientes de al menos 32 bytes aleatorios. Si omites `API_TOKEN` con `DEBUG=false`, las rutas privadas devolverán `503` por seguridad.
+Genera `API_TOKEN` como un valor de al menos 32 bytes aleatorios. Si omites `API_TOKEN` con `DEBUG=false`, las rutas privadas devolverán `503` por seguridad.
 
 ## Render
 
 1. Conecta el repositorio y usa `render.yaml`.
 2. Añade los secretos marcados como `sync: false`.
 3. Despliega y comprueba `GET /api/health`.
-4. Abre la URL HTTPS, introduce `API_TOKEN` y valida chat, memoria y recordatorios.
+4. Abre la URL HTTPS, introduce `API_TOKEN` y valida el chat, la voz y la memoria.
 
 ## Railway
 
@@ -32,9 +30,8 @@ El proyecto usa `python app.py` y `/api/health` como health check. Añade las mi
 
 ## Android
 
-En ajustes de la app introduce exclusivamente la URL HTTPS y el mismo `API_TOKEN`. Concede solo los permisos de las funciones que quieras usar. La app no permite backend HTTP sin cifrar y excluye el token de copias de seguridad.
+En ajustes de la app introduce la URL HTTPS del servidor e inicia sesión en el chat con `API_TOKEN`. Los permisos de teléfono y contactos solo se piden al activar el filtro de llamadas. La app no permite backend HTTP sin cifrar.
 
 ## Rotación de secretos
 
 - `API_TOKEN`: cámbialo en servidor y dispositivos; las sesiones web anteriores dejan de ser válidas.
-- `DATA_ENCRYPTION_KEY`: no la cambies directamente si existen credenciales cifradas. Descifra o migra esos registros primero.

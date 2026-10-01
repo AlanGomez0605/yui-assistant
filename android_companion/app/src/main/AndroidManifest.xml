@@ -1,44 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     package="com.yui.assistant">
 
-    <!-- Conectividad a la Nube -->
+    <!-- Chat con Yui (WebView hacia el backend HTTPS) -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Overlay Flotante sobre otras aplicaciones (HUD de Yui) -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
-    <!-- Cuentas de Google para manipulación y acceso de Yui -->
-    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
-
-    <!-- Acceso a Contactos para sincronización con MongoDB Atlas -->
+    <!-- Filtro de llamadas: comparar con la agenda y rechazar desconocidos -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-
-    <!-- Acceso a Calendario de Google (Lectura y Creación de Recordatorios) -->
-    <uses-permission android:name="android.permission.READ_CALENDAR" />
-    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
-
-    <!-- Control de Alarmas y Temporizadores del Teléfono & Recordatorios Autónomos -->
-    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Detección y Gestión Inteligente de Llamadas (Filtro 30-40s) -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
-
-    <!-- Audio y Micrófono para comandos de voz directos -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="false"
@@ -48,7 +19,7 @@
         android:theme="@style/Theme.YuiAssistant"
         android:usesCleartextTraffic="false">
 
-        <!-- Pantalla Principal de Configuración y Permisos -->
+        <!-- Pantalla principal: chat y botón del filtro de llamadas -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -59,50 +30,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Diálogo Rápido de Voz Flotante -->
-        <activity
-            android:name=".VoiceQuickDialogActivity"
-            android:exported="false"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
-        <!-- Servicio de Avatar Flotante 2D y HUD SAO (SYSTEM_ALERT_WINDOW) -->
+        <!-- Filtro oficial de llamadas (Android 10+, rol ROLE_CALL_SCREENING) -->
         <service
-            android:name=".FloatingOverlayService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Floating SAO HUD for Yui Assistant" />
+            android:name=".YuiCallScreeningService"
+            android:permission="android.permission.BIND_SCREENING_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
         </service>
 
-        <!-- Receptor de Recordatorios Autónomos Exactos -->
-        <receiver
-            android:name=".AutonomousReminderReceiver"
-            android:enabled="true"
-            android:exported="false" />
-
-        <receiver
-            android:name=".BootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Receptor de Cambio de Conectividad (Auto-Sync Queue) -->
-        <receiver
-            android:name=".NetworkChangeReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Receptor de Llamadas Entrantes (Filtro 5s para desconocidos) -->
+        <!-- Respaldo del filtro de llamadas (Android 9 o sin el rol de filtro) -->
         <receiver
             android:name=".CallInterceptorReceiver"
             android:enabled="true"
@@ -112,16 +50,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Servicio de Sincronización de Recordatorios en Segundo Plano -->
-        <!-- Conecta por WebSocket al backend para recibir recordatorios en tiempo real -->
-        <!-- Si el WS falla, hace poll HTTP cada 60s como respaldo -->
-        <service
-            android:name=".YuiReminderSyncService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <!-- Servicio de Accesibilidad para Control y Navegación del Dispositivo -->
+        <!-- Filtro de llamadas de WhatsApp (Accesibilidad) -->
         <service
             android:name=".YuiAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"

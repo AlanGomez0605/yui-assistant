@@ -22,7 +22,6 @@ try:
     from backend.app.api.endpoints import router as api_router
     from backend.app.core.mongodb import mongodb_manager
     from backend.app.core.mongodb import DatabaseUnavailableError
-    from backend.app.services.proactive_service import proactive_service
     from backend.app.core.security import (
         SESSION_COOKIE_NAME,
         authentication_configured,
@@ -35,7 +34,6 @@ except ImportError:
     from app.api.endpoints import router as api_router
     from app.core.mongodb import mongodb_manager
     from app.core.mongodb import DatabaseUnavailableError
-    from app.services.proactive_service import proactive_service
     from app.core.security import (
         SESSION_COOKIE_NAME,
         authentication_configured,
@@ -54,13 +52,11 @@ async def lifespan(app: FastAPI):
         connected = await mongodb_manager.connect()
         if connected:
             print("[YUI] MongoDB Atlas conectado.")
-            proactive_service.start()
         else:
-            print("[YUI] MongoDB no configurado; las funciones persistentes no estan disponibles.")
+            print("[YUI] MongoDB no configurado; la memoria persistente no esta disponible.")
     except Exception as e:
         print(f"[YUI] Aviso al conectar MongoDB Atlas: {e}")
     yield
-    proactive_service.stop()
     await mongodb_manager.close()
     print("[YUI] Servidor finalizado.")
 
@@ -112,7 +108,7 @@ async def secure_api_and_responses(request: Request, call_next):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; media-src 'self' blob: data:; "
-        "connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     )
     return response
 

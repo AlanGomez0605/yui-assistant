@@ -2,7 +2,7 @@ import hashlib
 import hmac
 from typing import Optional
 
-from fastapi import Request, WebSocket
+from fastapi import Request
 
 from .config import Settings
 
@@ -40,14 +40,6 @@ def request_is_authenticated(request: Request, settings: Settings) -> bool:
     bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
     return token_is_valid(bearer, settings) or session_is_valid(
         request.cookies.get(SESSION_COOKIE_NAME), settings
-    )
-
-
-def websocket_is_authenticated(websocket: WebSocket, settings: Settings) -> bool:
-    authorization = websocket.headers.get("authorization", "")
-    bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
-    return token_is_valid(bearer, settings) or session_is_valid(
-        websocket.cookies.get(SESSION_COOKIE_NAME), settings
     )
 
 

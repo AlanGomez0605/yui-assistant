@@ -72,12 +72,17 @@ class GeminiYuiService:
             owner_name=settings.OWNER_NAME,
             owner_nickname=settings.OWNER_NICKNAME
         )
-        memory_context = await memory_service.build_dynamic_context()
+        try:
+            memory_context = await memory_service.build_dynamic_context()
+        except Exception as e:
+            # Sin MongoDB Yui sigue conversando, solo que sin memoria persistente
+            logging.warning(f"Memoria no disponible: {e}")
+            memory_context = "Memoria persistente no disponible en este momento."
         time_info = ""
         if client_time:
             time_info = f"\n🕒 HORA Y FECHA ACTUAL EN EL DISPOSITIVO DE ALAN: {client_time} ({client_timezone or 'America/Mexico_City'})\n"
 
-        return f"{self.system_prompt_base}\n{time_info}\n---\n### 💾 MEMORIA PERSISTENTE Y RECORDATORIOS ACTUALES:\n{memory_context}\n"
+        return f"{self.system_prompt_base}\n{time_info}\n---\n### 💾 MEMORIA PERSISTENTE:\n{memory_context}\n"
 
     async def generate_reply_stream(
         self,

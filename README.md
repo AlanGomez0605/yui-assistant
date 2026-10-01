@@ -1,20 +1,19 @@
 # Proyecto Yui
 
-Asistente personal con backend FastAPI, interfaz web/PWA y companion Android.
+Asistente personal con dos funciones: **chat con Yui** (backend FastAPI + interfaz web/PWA) y **filtro de llamadas** en la app Android.
 
-## Funciones implementadas
+## Funciones
 
-- Chat con Gemini y memoria persistente en MongoDB.
-- Recordatorios con zona horaria, WebSocket y sincronización de alarmas Android.
-- Agenda sincronizada, interfaz de voz/TTS y controles móviles opcionales.
-- Autenticación por token, sesión web HttpOnly, cifrado de credenciales y validación de entradas.
+- Chat con Gemini, por texto o voz (voz neural edge-tts y dictado del navegador).
+- Memoria persistente en MongoDB: Yui recuerda datos y conversaciones pasadas. Si MongoDB no está disponible, el chat sigue funcionando sin memoria.
+- Filtro de llamadas Android: rechaza números que no están en la agenda (llamadas normales y, opcionalmente, de WhatsApp). Ver [android_companion/README.md](android_companion/README.md).
+- Autenticación por token y sesión web HttpOnly.
 
 ## Límites importantes
 
-- Los perfiles de voz son metadatos; no hay identificación biométrica de locutor.
-- El registro de una cuenta Google no activa Gmail, Drive ni Calendar por sí solo; falta un flujo OAuth funcional para esos servicios.
-- El filtro de llamadas Android solo intenta rechazar números desconocidos cuando el usuario lo habilita y concede los permisos. No contesta llamadas.
-- Los recordatorios en vivo requieren el backend activo y un cliente conectado; Android conserva alarmas que ya haya sincronizado.
+- El chat necesita internet: la IA corre en el servidor. Sin conexión la interfaz avisa y conserva el mensaje escrito.
+- El filtro de llamadas solo actúa cuando el usuario lo activa. En Android 10+ requiere aceptar a Yui como "App de identificación de llamadas y spam"; sin ese rol usa un modo de respaldo que necesita los permisos de registro de llamadas y de teléfono. Números ocultos y agenda vacía nunca se rechazan. No contesta llamadas.
+- Yui no crea recordatorios, alarmas ni eventos, no envía mensajes y no accede a contactos ni cuentas.
 
 ## Inicio local
 
@@ -25,7 +24,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe app.py
 ```
 
-Configura como mínimo `GEMINI_API_KEY`, `MONGODB_URI`, `API_TOKEN` y `DATA_ENCRYPTION_KEY`. Abre `http://localhost:8000` y usa el mismo `API_TOKEN` en la pantalla de acceso.
+Configura como mínimo `GEMINI_API_KEY`, `MONGODB_URI` y `API_TOKEN`. Abre `http://localhost:8000` y usa el mismo `API_TOKEN` en la pantalla de acceso.
 
 ## Pruebas
 

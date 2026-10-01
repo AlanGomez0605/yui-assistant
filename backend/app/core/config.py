@@ -17,25 +17,19 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = False
     API_TOKEN: str = ""
-    DATA_ENCRYPTION_KEY: str = ""
     CORS_ORIGINS: str = ""
     
     # Perfil
     OWNER_NAME: str = "Alan Jahir"
     OWNER_NICKNAME: str = "Alan"
-    OWNER_EMAIL: str = ""
-    OWNER_TIMEZONE: str = "America/Mexico_City"
     ASSISTANT_NAME: str = "Yui"
     
-    # Base de Datos (Nube NoSQL MongoDB & SQLite fallback)
+    # Base de Datos (Nube NoSQL MongoDB)
     MONGODB_URI: str = ""
     MONGODB_DB_NAME: str = "yui_cloud_memory"
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/yui_memory.db"
     
     # Voz
     TTS_VOICE: str = "es-MX-DaliaNeural"
-    TTS_RATE: str = "+0%"
-    TTS_PITCH: str = "+5Hz"
 
     @field_validator("DEBUG", mode="before")
     @classmethod

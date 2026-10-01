@@ -1,50 +1,25 @@
-# 📱 Yui Companion App para Android (MHCP-0001)
+# 📱 Yui para Android
 
-Esta carpeta contiene el código fuente nativo de la **App Complementaria de Yui para Android**, que le otorga a Yui:
+La app tiene dos funciones:
 
-1. 🌸 **Overlay Flotante Permanente (`SYSTEM_ALERT_WINDOW`)**:
-   - Una burbuja interactiva de Yui que se mantiene visible sobre cualquier otra aplicación o juego en tu teléfono.
-   - Puedes arrastrarla a cualquier lugar de la pantalla o tocarla para desplegar el HUD de Sword Art Online.
+1. 💬 **Chat con Yui**: abre la interfaz web del backend (texto, voz de Yui y recuerdos). Necesita internet.
+2. 📵 **Filtro de llamadas**: rechaza llamadas de números que no están en tu agenda. Funciona sin internet.
+   - **Llamadas normales (Android 10+)**: usa el filtro oficial del sistema (`CallScreeningService`). Rechaza al instante.
+   - **Respaldo (Android 9, o si no concedes el rol de filtro)**: detecta la llamada y cuelga a los 5 segundos.
+   - **WhatsApp**: si activas Yui en *Accesibilidad*, rechaza a los 5 segundos las llamadas de WhatsApp de números no guardados.
+   - **Contactos bloqueados**: con **🚫 Bloqueados** eliges contactos de tu agenda cuyas llamadas también quieres rechazar. Android no le pasa al filtro oficial las llamadas de contactos, así que estas se cuelgan con el método de respaldo (suenan unos 5 segundos y requieren los permisos de Teléfono y Registro de llamadas).
+   - Nunca rechaza números ocultos, ni nada si la agenda está vacía o falta el permiso de contactos.
 
-2. 👥 **Sincronización Total de Contactos (`READ_CONTACTS`)**:
-   - Lee todos los contactos de tu agenda telefónica y los sube de manera segura a tu base de datos **MongoDB Atlas** en la nube (`POST /api/contacts/sync`).
+## 🛠️ Compilar el APK
 
-3. 📞 **Filtro Inteligente de Llamadas con Regla de 30-40 Segundos (`READ_PHONE_STATE` / `ANSWER_PHONE_CALLS`)**:
-   - Cuando entra una llamada, Yui espera 35 segundos para que decidas si contestas tú.
-   - Si no contestas en 35 segundos:
-     * **Contacto Registrado:** Yui contesta automáticamente y reproduce su mensaje de voz neural de cortesía.
-     * **Número Desconocido / Spam:** Yui cuelga y rechaza la llamada de inmediato.
+El APK se compila en GitHub Actions al hacer push a `master` o `main` (workflow `build_apk.yml`). También puedes abrir `android_companion` en Android Studio y pulsar **Run**.
 
-4. 🤖 **Control y Navegación por Accesibilidad (`AccessibilityService`)**:
-   - Capacidad de realizar toques en pantalla, navegar y presionar botones automáticamente cuando se lo indiques por voz.
+## 🚀 Configuración en el teléfono
 
----
-
-## 🛠️ Cómo Compilar e Instalar el APK
-
-### Opción A: Compilar con Android Studio (Recomendada)
-1. Abre **Android Studio** en tu PC.
-2. Selecciona **Open** y elige la carpeta `android_companion`.
-3. Conecta tu teléfono Android mediante cable USB con la **Depuración USB** activada (o usa un emulador).
-4. Haz clic en el botón verde **Run (▶)** para instalar la app directamente en tu teléfono.
-
-### Opción B: Compilar desde la terminal (Gradle)
-```bash
-cd android_companion
-./gradlew assembleDebug
-```
-El archivo APK resultante se generará en:
-`android_companion/app/build/outputs/apk/debug/app-debug.apk`
-
----
-
-## 🚀 Configuración Inicial en el Teléfono
-1. Abre la app **Yui SAO** en tu Android.
-2. Ingresa la URL de tu servidor en la nube (ejemplo: `https://yui-mhcp0001.onrender.com`).
-3. Presiona **Guardar**.
-4. Concede los permisos que solicite la aplicación:
-   * **Mostrar sobre otras aplicaciones** (Overlay).
-   * **Acceso a Contactos**.
-   * **Gestionar llamadas telefónicas**.
-5. Toca **"Sincronizar Contactos"** para cargar tu agenda en la nube.
-6. Toca **"🌸 Activar Burbuja Flotante"** y ¡listo! Yui estará contigo en todo momento.
+1. Abre **Yui SAO**, toca **⚙**, escribe la URL HTTPS de tu servidor y pulsa **Guardar**.
+2. Inicia sesión en el chat con el `API_TOKEN` del servidor.
+3. Toca **📞 Filtro: OFF** para activarlo y concede:
+   - Contactos, Teléfono y Registro de llamadas.
+   - **App de identificación de llamadas y spam** → elige **Yui SAO** (Android 10+).
+4. Opcional: toca **🚫 Bloqueados** → **+ Agregar contacto** para rechazar también a contactos concretos. Toca uno de la lista para desbloquearlo.
+5. Opcional, para WhatsApp: toca la línea de estado y activa **Yui SAO** en *Accesibilidad*.

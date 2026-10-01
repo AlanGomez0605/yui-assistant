@@ -1,36 +1,35 @@
 package com.yui.assistant
 
 import android.Manifest
-import android.content.Context
+import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.provider.Settings
-import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.WebResourceRequest
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var etBackendUrl: EditText
-    private lateinit var etApiToken: EditText
     private lateinit var btnSaveUrl: Button
-    private lateinit var btnStartOverlay: Button
-    private lateinit var btnSyncContacts: Button
+    private lateinit var btnCallFilter: Button
+    private lateinit var btnBlockedContacts: Button
     private lateinit var btnToggleSettings: Button
     private lateinit var panelSettings: android.view.View
     private lateinit var tvStatus: TextView
@@ -38,33 +37,40 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 200
-        private const val OVERLAY_PERMISSION_REQUEST_CODE = 201
+        private const val CALL_SCREENING_ROLE_REQUEST_CODE = 202
+    }
+
+    /** Selector de contactos del sistema para elegir a quién bloquear */
+    private val pickContactLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) {
+            addPickedContactToBlocklist(uri)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        OfflineCommandEngine.initTts(this)
         initViews()
-        checkAndRequestPermissions()
         loadSavedUrl()
 
-        // Iniciar servicio de sincronización de recordatorios en segundo plano (siempre activo)
-        YuiReminderSyncService.start(this)
-
-        // Sincronizar recordatorios autónomos de la nube en segundo plano
-        CoroutineScope(Dispatchers.IO).launch {
-            AutonomousReminderManager.syncCloudReminders(this@MainActivity)
+        // Si el filtro quedó activo, confirmar que sigue teniendo permisos
+        if (CallInterceptorReceiver.isEnabled(this)) {
+            checkAndRequestCallPermissions()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateCallFilterUi()
     }
 
     private fun initViews() {
         etBackendUrl = findViewById(R.id.etBackendUrl)
-        etApiToken = findViewById(R.id.etApiToken)
         btnSaveUrl = findViewById(R.id.btnSaveUrl)
-        btnStartOverlay = findViewById(R.id.btnStartOverlay)
-        btnSyncContacts = findViewById(R.id.btnSyncContacts)
+        btnCallFilter = findViewById(R.id.btnCallFilter)
+        btnBlockedContacts = findViewById(R.id.btnBlockedContacts)
         btnToggleSettings = findViewById(R.id.btnToggleSettings)
         panelSettings = findViewById(R.id.panelSettings)
         tvStatus = findViewById(R.id.tvStatus)
@@ -85,7 +91,6 @@ class MainActivity : AppCompatActivity() {
             if (url.isNotEmpty()) {
                 try {
                     ApiClient.setBackendUrl(this, url)
-                    ApiClient.setApiToken(this, etApiToken.text.toString())
                     Toast.makeText(this, "Conexion segura guardada", Toast.LENGTH_SHORT).show()
                     webView.loadUrl(ApiClient.getBackendUrl(this))
                     panelSettings.visibility = android.view.View.GONE
@@ -95,12 +100,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnStartOverlay.setOnClickListener {
-            checkOverlayPermissionAndStart()
+        btnCallFilter.setOnClickListener {
+            val newState = !CallInterceptorReceiver.isEnabled(this)
+            CallInterceptorReceiver.setEnabled(this, newState)
+            updateCallFilterUi()
+            if (newState) {
+                Toast.makeText(this, "📵 Filtro de llamadas ACTIVADO", Toast.LENGTH_SHORT).show()
+                checkAndRequestCallPermissions(forceCallScreeningPrompt = true)
+            } else {
+                Toast.makeText(this, "📞 Filtro de llamadas desactivado", Toast.LENGTH_SHORT).show()
+            }
         }
 
-        btnSyncContacts.setOnClickListener {
-            syncDeviceContacts()
+        btnBlockedContacts.setOnClickListener {
+            showBlockedContactsDialog()
+        }
+
+        // Tocar el estado abre Accesibilidad para habilitar el filtro de WhatsApp
+        tvStatus.setOnClickListener {
+            if (CallInterceptorReceiver.isEnabled(this) && !isAccessibilityServiceEnabled()) {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
         }
     }
 
@@ -123,31 +143,119 @@ class MainActivity : AppCompatActivity() {
                     target.port != allowed.port
             }
         }
-        webView.addJavascriptInterface(YuiAndroidBridge(this), "AndroidYuiBridge")
     }
 
     private fun loadSavedUrl() {
         val savedUrl = ApiClient.getBackendUrl(this)
         etBackendUrl.setText(savedUrl)
-        etApiToken.setText(ApiClient.getApiToken(this))
         webView.loadUrl(savedUrl)
     }
 
-    private fun checkAndRequestPermissions() {
+    private fun updateCallFilterUi() {
+        val enabled = CallInterceptorReceiver.isEnabled(this)
+        btnCallFilter.text = if (enabled) "📵 Filtro: ON" else "📞 Filtro: OFF"
+
+        tvStatus.text = when {
+            !enabled -> "Filtro de llamadas desactivado."
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !CallInterceptorReceiver.hasScreeningRole(this) ->
+                "⚠️ Filtro en modo respaldo: acepta a Yui como app de filtro de llamadas."
+            !isAccessibilityServiceEnabled() ->
+                "📵 Filtro activo. Toca aquí para activar también el de WhatsApp (Accesibilidad)."
+            else -> "📵 Filtro activo para llamadas normales y de WhatsApp."
+        }
+    }
+
+    // ==========================================================================
+    // CONTACTOS BLOQUEADOS (registrados, pero Alan quiere rechazar sus llamadas)
+    // ==========================================================================
+
+    private fun showBlockedContactsDialog() {
+        val entries = CallBlocklist.getAll(this)
+        val builder = AlertDialog.Builder(this)
+            .setTitle("🚫 Contactos bloqueados")
+            .setPositiveButton("+ Agregar contacto") { _, _ -> launchContactPicker() }
+            .setNegativeButton("Cerrar", null)
+
+        if (entries.isEmpty()) {
+            builder.setMessage("Ningún contacto bloqueado.\n\nLos contactos que agregues aquí serán rechazados aunque estén en tu agenda, siempre que el filtro esté activo.")
+        } else {
+            val labels = entries.map { "${it.name}  ·  ${it.number}" }.toTypedArray()
+            builder.setItems(labels) { _, which -> confirmUnblock(entries[which]) }
+        }
+        builder.show()
+    }
+
+    private fun confirmUnblock(entry: CallBlocklist.Entry) {
+        AlertDialog.Builder(this)
+            .setTitle("Desbloquear contacto")
+            .setMessage("¿Dejar que las llamadas de ${entry.name} vuelvan a sonar?")
+            .setPositiveButton("Desbloquear") { _, _ ->
+                CallBlocklist.remove(this, entry)
+                Toast.makeText(this, "📞 ${entry.name} desbloqueado", Toast.LENGTH_SHORT).show()
+                showBlockedContactsDialog()
+            }
+            .setNegativeButton("Cancelar") { _, _ -> showBlockedContactsDialog() }
+            .show()
+    }
+
+    private fun launchContactPicker() {
+        val intent = Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
+        try {
+            pickContactLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "No se encontró la app de contactos", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun addPickedContactToBlocklist(uri: Uri) {
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        )
+        val picked = try {
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) null
+                else (cursor.getString(0) ?: "") to (cursor.getString(1) ?: "")
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        if (picked == null || picked.second.isBlank()) {
+            Toast.makeText(this, "No se pudo leer el número del contacto", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val (name, number) = picked
+        val added = CallBlocklist.add(this, name, number)
+        val msg = if (added) "🚫 ${name.ifBlank { number }} bloqueado" else "Ese número ya estaba bloqueado"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        if (added && !CallInterceptorReceiver.isEnabled(this)) {
+            Toast.makeText(this, "Activa el filtro para que el bloqueo funcione", Toast.LENGTH_LONG).show()
+        }
+        showBlockedContactsDialog()
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expected = ComponentName(this, YuiAccessibilityService::class.java).flattenToString()
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?: return false
+        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+    }
+
+    private fun checkAndRequestCallPermissions(forceCallScreeningPrompt: Boolean = false) {
         val permissions = mutableListOf(
             Manifest.permission.READ_CONTACTS,
-            Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.READ_CALENDAR,
-            Manifest.permission.WRITE_CALENDAR
+            Manifest.permission.READ_PHONE_STATE
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissions.add(Manifest.permission.ANSWER_PHONE_CALLS)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        // Respaldo del filtro de llamadas: sin este permiso Android 9+ no entrega el número entrante
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            permissions.add(Manifest.permission.READ_CALL_LOG)
         }
 
         val needed = permissions.filter {
@@ -156,110 +264,48 @@ class MainActivity : AppCompatActivity() {
 
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERMISSION_REQUEST_CODE)
-        }
-    }
-
-    private fun checkOverlayPermissionAndStart() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (!Settings.canDrawOverlays(this)) {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-                startActivityForResult(intent, OVERLAY_PERMISSION_REQUEST_CODE)
-                return
-            }
-        }
-        startFloatingService()
-    }
-
-    private fun startFloatingService() {
-        val serviceIntent = Intent(this, FloatingOverlayService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
         } else {
-            startService(serviceIntent)
+            requestCallScreeningRoleIfNeeded(forceCallScreeningPrompt)
         }
-        Toast.makeText(this, "🌸 Yui Overlay Flotante Iniciada", Toast.LENGTH_SHORT).show()
     }
 
-    private fun syncDeviceContacts() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), PERMISSION_REQUEST_CODE)
-            Toast.makeText(this, "Por favor concede el permiso de Contactos", Toast.LENGTH_SHORT).show()
-            return
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            requestCallScreeningRoleIfNeeded(force = false)
+            updateCallFilterUi()
         }
+    }
 
-        tvStatus.text = "Leyendo agenda del teléfono..."
-        btnSyncContacts.isEnabled = false
+    /**
+     * Android 10+: pide a Yui como "App de identificación de llamadas y spam" para que
+     * YuiCallScreeningService pueda rechazar desconocidos. Solo si el filtro está activo.
+     */
+    private fun requestCallScreeningRoleIfNeeded(force: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (!force && !CallInterceptorReceiver.isEnabled(this)) return
+        if (CallInterceptorReceiver.hasScreeningRole(this)) return
 
-        CoroutineScope(Dispatchers.Main).launch {
-            val (success, count, errorMsg) = ContactsSyncManager.syncContactsToCloud(this@MainActivity) { current, total ->
-                tvStatus.text = "Sincronizando: $current de $total contactos..."
-            }
-            btnSyncContacts.isEnabled = true
+        val roleManager = getSystemService(RoleManager::class.java) ?: return
+        if (!roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) return
+        @Suppress("DEPRECATION")
+        startActivityForResult(
+            roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING),
+            CALL_SCREENING_ROLE_REQUEST_CODE
+        )
+    }
 
-            if (success) {
-                tvStatus.text = "✅ $count contactos sincronizados en MongoDB Atlas."
-                Toast.makeText(this@MainActivity, "✅ $count contactos guardados en la Nube", Toast.LENGTH_SHORT).show()
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == CALL_SCREENING_ROLE_REQUEST_CODE) {
+            val msg = if (CallInterceptorReceiver.hasScreeningRole(this)) {
+                "📵 Filtro de llamadas listo: Yui rechazará números desconocidos."
             } else {
-                if (count == 0 && errorMsg.contains("No se encontraron")) {
-                    tvStatus.text = "⚠️ No se encontraron contactos en tu agenda."
-                    Toast.makeText(this@MainActivity, "No se encontraron contactos", Toast.LENGTH_SHORT).show()
-                } else {
-                    tvStatus.text = "❌ Error al sincronizar: $errorMsg"
-                    Toast.makeText(this@MainActivity, "Error: $errorMsg", Toast.LENGTH_LONG).show()
-                }
+                "⚠️ Sin el rol de filtro de llamadas Yui usará el modo de respaldo (menos fiable)."
             }
-        }
-    }
-
-    inner class YuiAndroidBridge(private val context: Context) {
-
-        @JavascriptInterface
-        fun createCalendarEvent(title: String, description: String, startMillis: Long, endMillis: Long): Boolean {
-            return CalendarSyncManager.createCalendarEvent(context, title, description, startMillis, endMillis)
-        }
-
-        @JavascriptInterface
-        fun setSystemAlarm(hour: Int, minute: Int, message: String): Boolean {
-            return DeviceControlManager.setAlarm(context, hour, minute, message)
-        }
-
-        @JavascriptInterface
-        fun openApplication(appName: String): Boolean {
-            return DeviceControlManager.openApp(context, appName)
-        }
-
-        @JavascriptInterface
-        fun sendWhatsApp(phoneNumber: String, message: String): Boolean {
-            return DeviceControlManager.sendWhatsApp(context, phoneNumber, message)
-        }
-
-        @JavascriptInterface
-        fun scheduleAutonomousReminder(title: String, triggerMillis: Long, description: String): Int {
-            return AutonomousReminderManager.scheduleLocalReminder(context, title, triggerMillis, description)
-        }
-
-        @JavascriptInterface
-        fun getDeviceGoogleAccounts(): String {
-            val accounts = GoogleAccountManager.getDeviceGoogleAccounts(context)
-            return org.json.JSONArray(accounts).toString()
-        }
-
-        @JavascriptInterface
-        fun processOfflineCommand(command: String): String {
-            val res = OfflineCommandEngine.processCommand(context, command)
-            return org.json.JSONObject().apply {
-                put("handled", res.handled)
-                put("response", res.responseMessage)
-                put("action", res.actionType)
-            }.toString()
-        }
-
-        @JavascriptInterface
-        fun isNativeCompanion(): Boolean {
-            return true
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            updateCallFilterUi()
         }
     }
 }
